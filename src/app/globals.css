@@ -1,0 +1,545 @@
+/* src/app/globals.css
+ *
+ * MehmanGhar Financial OS — Global Styles
+ *
+ * Structure:
+ *   1. Tailwind v4 import
+ *   2. MehmanGhar CSS custom properties (verbatim from mg-finance-os.html :root)
+ *   3. Base resets matching the HTML
+ *   4. Layout primitives (.main, .cnt)
+ *   5. Shared table / pill / row classes used across multiple pages
+ *   6. Responsive override
+ */
+
+@import "tailwindcss";
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* 1. CSS CUSTOM PROPERTIES — verbatim from mg-finance-os.html :root          */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Brand — orange */
+  --or: #F4521E;
+  --orl: #FF6B35;
+  --orp: #FEF0EB;
+  --orm: #FDDDD4;
+
+  /* Surfaces */
+  --bg: #F6F5F2;
+  --surf: #fff;
+  --s2: #F1F0EC;
+  --bdr: #E5E2DA;
+
+  /* Text */
+  --tx: #18160E;
+  --t2: #6A6560;
+  --t3: #A09890;
+
+  /* Semantic colours */
+  --gr: #16A34A;
+  --grp: #DCFCE7;
+  --rd: #DC2626;
+  --rdp: #FEF2F2;
+  --bl: #2563EB;
+  --blp: #EFF6FF;
+  --go: #D97706;
+  --gop: #FEF3C7;
+
+  /* Shadows */
+  --sh1: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --sh2: 0 4px 20px rgba(0,0,0,.08), 0 2px 8px rgba(0,0,0,.04);
+  --sh3: 0 16px 48px rgba(0,0,0,.12), 0 4px 14px rgba(0,0,0,.06);
+
+  /* Border radii */
+  --r: 14px;
+  --rs: 9px;
+  --rl: 20px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* 2. BASE RESETS                                                              */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Sora', sans-serif;
+  background: var(--bg);
+  color: var(--tx);
+  font-size: 13.5px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* 3. BUTTON CLASSES — verbatim from the HTML                                  */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 13px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: 'Sora', sans-serif;
+  transition: all .14s;
+  white-space: nowrap;
+}
+
+.btn-g   { background: var(--s2);  color: var(--t2); }
+.btn-g:hover { background: var(--bdr); }
+.btn-or  { background: var(--or);  color: #fff; }
+.btn-or:hover { background: var(--orl); }
+.btn-rd  { background: var(--rdp); color: var(--rd); }
+.btn-gr  { background: var(--gr);  color: #fff; }
+.btn-gr:hover { background: #15803d; }
+.btn-sm  { padding: 5px 11px; font-size: 11.5px; }
+
+/* ── Section title divider (.stl) — used on Reports, Insights, Expenses ── */
+.stl {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 11px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.stl .d {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--or);
+}
+
+/* responsive — Page header bar base class.
+   Desktop: flex row with space-between (title left, actions right).
+   Mobile: keeps space-between for single buttons; multi-button groups
+   (.page-hdr-actions) go full-width below via flex-wrap. */
+.page-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 4px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* 4. LAYOUT PRIMITIVES                                                        */
+/* Verbatim from the HTML. Applied by the (dashboard) layout.                 */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* Main content area — offset for the fixed 230px sidebar */
+.main {
+  margin-left: 230px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Page content wrapper — padding applied uniformly to every page */
+.cnt {
+  padding: 20px 24px;
+  flex: 1;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* 5. SHARED TABLE / ROW / PILL CLASSES                                        */
+/* Used across Properties, Investors, Bookings, etc. pages.                   */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* Table wrapper card */
+.tw {
+  background: #fff;
+  border-radius: var(--r);
+  border: 1px solid var(--bdr);
+  box-shadow: var(--sh1);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+/* Table header row within .tw */
+.th {
+  padding: 15px 19px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--bdr);
+}
+
+table { width: 100%; border-collapse: collapse; }
+
+thead th {
+  padding: 8px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--t3);
+  text-align: left;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  background: var(--s2);
+  border-bottom: 1px solid var(--bdr);
+}
+
+tbody tr {
+  border-bottom: 1px solid var(--bdr);
+  transition: background .1s;
+}
+
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--bg); }
+
+tbody td {
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--tx);
+}
+
+/* Status pills */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.pill.g  { background: var(--grp); color: #166534; }
+.pill.r  { background: var(--rdp); color: #991B1B; }
+.pill.o  { background: var(--orp); color: #9A3412; }
+.pill.b  { background: var(--blp); color: #1D4ED8; }
+.pill.go { background: var(--gop); color: #78350F; }
+
+/* List-style rows (Properties, Investors, etc.) */
+.rrow {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bdr);
+  gap: 11px;
+  transition: background .1s;
+}
+
+.rrow:last-child { border-bottom: none; }
+.rrow:hover { background: var(--bg); }
+
+.rico {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--orp);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.rinfo { flex: 1; min-width: 0; }
+.rname { font-size: 13px; font-weight: 600; }
+.rmeta { font-size: 11px; color: var(--t3); margin-top: 2px; }
+
+/* Progress bar (used in insight rows) */
+.pb { height: 4px; background: var(--bdr); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+.pf { height: 100%; border-radius: 2px; }
+
+/* Card / chart containers */
+.cc {
+  background: #fff;
+  border-radius: var(--r);
+  border: 1px solid var(--bdr);
+  box-shadow: var(--sh1);
+  padding: 17px 19px;
+  transition: box-shadow .18s;
+}
+
+.cc:hover { box-shadow: var(--sh2); }
+
+.ch {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 13px;
+}
+
+.ct { font-size: 13.5px; font-weight: 700; }
+.cs { font-size: 11px; color: var(--t3); margin-top: 2px; }
+
+/* Grid row layouts */
+.crow { display: grid; gap: 11px; margin-bottom: 16px; }
+.crow.r2 { grid-template-columns: 2fr 1fr; }
+.crow.r3 { grid-template-columns: 1fr 1fr 1fr; }
+.crow.re { grid-template-columns: 1fr 1fr; }
+
+/* Empty state */
+.es {
+  text-align: center;
+  padding: 50px 32px;
+  background: #fff;
+  border-radius: var(--rl);
+  border: 2px dashed var(--bdr);
+}
+
+.es-ico { font-size: 42px; margin-bottom: 12px; }
+.es-t   { font-size: 17px; font-weight: 700; margin-bottom: 5px; }
+.es-s   { font-size: 12.5px; color: var(--t3); margin-bottom: 18px; }
+
+/* Tab switcher */
+.tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--s2);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 16px;
+  width: fit-content;
+}
+
+.tab {
+  padding: 6px 15px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .13s;
+  color: var(--t2);
+}
+
+.tab.active {
+  background: #fff;
+  color: var(--tx);
+  font-weight: 700;
+  box-shadow: var(--sh1);
+}
+
+/* Comparison badges (Expense Intel page) */
+.badge-up { background: var(--rdp); color: var(--rd); padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+.badge-dn { background: var(--grp); color: var(--gr); padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+
+/* Pending summary strip (Payout Ledger) */
+#pendingSummary {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Cash flow cards */
+.cfrow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 16px; }
+.cfc   { border-radius: var(--r); padding: 17px 19px; }
+.cfc.in  { background: var(--grp); border: 1.5px solid #BBF7D0; }
+.cfc.out { background: var(--rdp); border: 1.5px solid #FECACA; }
+.cfc.net { background: var(--orp); border: 1.5px solid var(--orm); }
+.cfc-l   { font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; margin-bottom: 6px; }
+.cfc.in  .cfc-l { color: #166534; }
+.cfc.out .cfc-l { color: #991B1B; }
+.cfc.net .cfc-l { color: #9A3412; }
+.cfc-a   { font-size: 25px; font-weight: 800; letter-spacing: normal; line-height: 1; margin-bottom: 3px; font-variant-numeric: tabular-nums; }
+.cfc.in  .cfc-a { color: #166534; }
+.cfc.out .cfc-a { color: #991B1B; }
+.cfc.net .cfc-a { color: var(--or); }
+.cfc-d   { font-size: 11px; opacity: .7; }
+.cfc.in  .cfc-d { color: #166534; }
+.cfc.out .cfc-d { color: #991B1B; }
+.cfc.net .cfc-d { color: #9A3412; }
+
+/* Insight summary cards */
+.isg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.isc { background: #fff; border-radius: var(--rs); padding: 12px 14px; border: 1px solid var(--bdr); display: flex; gap: 8px; box-shadow: var(--sh1); }
+.isd { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: var(--bdr); border-radius: 2px; }
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* 5b. SHARED GLOBAL UTILITY CLASSES                                          */
+/* These classes are used as plain className strings across many page          */
+/* components (not as CSS Module imports). They must live in globals.css.      */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* Filter select — used in table toolbar rows across all pages */
+.fsel {
+  border: 1.5px solid var(--bdr);
+  border-radius: 8px;
+  padding: 6px 28px 6px 10px;
+  font-size: 12.5px;
+  font-family: 'Sora', sans-serif;
+  color: var(--tx);
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  outline: none;
+  cursor: pointer;
+  transition: border-color .14s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.fsel:focus { border-color: var(--or); }
+
+/* Detail-panel KPI mini-grid — used inline in page Client Components */
+.dp-kpi {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  margin-bottom: 16px;
+}
+.dp-k {
+  background: var(--bg);
+  border-radius: var(--rs);
+  padding: 11px 13px;
+  border: 1px solid var(--bdr);
+}
+.dp-kl {
+  font-size: 9px;
+  color: var(--t3);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-bottom: 3px;
+}
+.dp-kv {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: normal;
+  font-variant-numeric: tabular-nums;
+}
+.dp-ks {
+  font-size: 10.5px;
+  color: var(--t3);
+  margin-top: 1px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* 6. RESPONSIVE                                                               */
+/* Verbatim from the HTML @media block, updated with consistent breakpoints.  */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* responsive — Tablet and below: sidebar hidden, content full width */
+@media (max-width: 1023px) {
+  .main { margin-left: 0; }
+  .pbar { flex-wrap: wrap; gap: 6px; }
+  .crow.r2,
+  .crow.r3,
+  .crow.re { grid-template-columns: 1fr; }
+  /* responsive — Cash flow cards: 3-col → 1-col */
+  .cfrow { grid-template-columns: 1fr; }
+  /* responsive — Insight grid: 3-col → 2-col */
+  .isg { grid-template-columns: repeat(2, 1fr); }
+  /* responsive — Reduce content padding */
+  .cnt { padding: 12px 10px; }
+
+  /* responsive — Table header bar: wrap on tablet when filters overflow */
+  .th {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  /* responsive — Page header bars (flex space-between): wrap on tablet */
+  .page-hdr {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* responsive — Pending summary strip: smaller on tablet */
+  #pendingSummary {
+    font-size: 10.5px;
+    padding: 4px 8px;
+  }
+}
+
+/* responsive — Mobile-specific overrides */
+@media (max-width: 639px) {
+  /* responsive — Insight grid: single column */
+  .isg { grid-template-columns: 1fr; }
+  /* responsive — Content padding tighter */
+  .cnt { padding: 10px 8px; }
+  /* responsive — Chart containers full width */
+  .cc { padding: 12px; }
+
+  /* responsive — Table header bar: stack title/filters vertically */
+  .th {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  /* responsive — Table header filter row: full width */
+  .th > div:last-child {
+    width: 100%;
+  }
+
+  /* responsive — Table cells: tighter on mobile */
+  thead th { padding: 6px 8px; font-size: 9px; }
+  tbody td { padding: 8px 8px; font-size: 11.5px; }
+
+  /* responsive — Page header bars: wrap with spacing, keep space-between */
+  .page-hdr {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    margin-bottom: 18px;
+  }
+
+  /* responsive — Multi-button action groups: stack full width below title */
+  .page-hdr-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+  }
+
+  /* responsive — Buttons inside page-hdr-actions stretch equally */
+  .page-hdr-actions > button,
+  .page-hdr-actions > span {
+    flex: 1;
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* responsive — Pending summary: full width on mobile */
+  #pendingSummary {
+    width: 100%;
+    justify-content: center;
+    font-size: 11px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* 7. RESPONSIVE GRID UTILITIES                                                */
+/* Used by client components that have inline-style grids which need to       */
+/* stack on mobile. CSS media queries cannot override inline styles, so       */
+/* these classes replace the inline gridTemplateColumns.                       */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* responsive — 3-column grid that stacks on mobile */
+.rg3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; }
+/* responsive — 4-column grid that stacks on mobile */
+.rg4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+/* responsive — 2-column grid that stacks on mobile */
+.rg2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* responsive */
+@media (max-width: 1023px) {
+  .rg3 { grid-template-columns: repeat(2, 1fr); }
+  .rg4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* responsive */
+@media (max-width: 639px) {
+  .rg3 { grid-template-columns: 1fr; }
+  .rg4 { grid-template-columns: 1fr; }
+  .rg2 { grid-template-columns: 1fr; }
+}

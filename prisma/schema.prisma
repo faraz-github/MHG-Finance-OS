@@ -1,0 +1,274 @@
+// prisma/schema.prisma
+// =============================================================================
+// MehmanGhar Financial OS — Prisma Schema
+// v3.1 — Broker fields added to Property
+//
+// 10 tables:
+//   Auth / RBAC  : roles, users
+//   Core data    : properties, investors, guests, bookings
+//   Finance      : daily_expenses, payouts
+//   Reporting    : reports
+//   Config       : utils_settings
+//
+// Migration history:
+//   20260322155931_init_schema  — initial schema (Phase 2)
+//   add_phase5_fields           — gap fields for Phase 6 API routes (Phase 5)
+//   remove_expense_model        — removed unused Expense model
+//   add_broker_fields           — broker_name, broker_pct, broker_public on Property
+// =============================================================================
+
+generator client {
+  provider   = "prisma-client"
+  output     = "../src/generated/prisma/client"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// AUTH / RBAC
+// =============================================================================
+
+model Role {
+  id   String @id @default(cuid())
+  name String @unique
+
+  /// Shape: { [tabKey: string]: boolean }
+  tab_permissions Json
+
+  /// Shape: { [tabKey: string]: { create: boolean, read: boolean, update: boolean, delete: boolean } }
+  crud_permissions Json
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  id            String @id @default(cuid())
+  username      String @unique
+  password_hash String
+
+  role_id String
+  role    Role   @relation(fields: [role_id], references: [id])
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("users")
+}
+
+// =============================================================================
+// CORE DATA
+// =============================================================================
+
+model Property {
+  id      String  @id @default(cuid())
+  name    String
+  address String?
+
+  city    String  @default("")
+  state   String  @default("")
+
+  /// MHG commission % passed to calcF(). e.g. 25.000 = 25%.
+  /// calcCommission() uses Operating Profit, not Revenue.
+  comm    Decimal @db.Decimal(6, 3) @default(25)
+
+  /// Property-level capital base for ROI calculation.
+  /// calcROI() returns null (not 0) when this is zero.
+  capital Decimal @db.Decimal(14, 2) @default(0)
+
+  /// Property type label — e.g. "Apartment", "Villa", "Studio"
+  type    String  @default("")
+
+  /// Number of rooms
+  rooms   Int     @default(0)
+
+  /// Saved assets (security deposits, advances, furniture).
+  /// Shape: Array<{ name: string; amount: number; type: "refundable"|"recoverable" }>
+  assets  Json    @default("[]")
+
+  // ── Broker fields ──────────────────────────────────────────────────────────
+  /// Name of the broker / co-agent (e.g. "Adil"). Null if no broker.
+  broker_name   String?
+
+  /// Broker commission % (e.g. 10.000 = 10%). 0 if no broker.
+  broker_pct    Decimal @db.Decimal(6, 3) @default(0)
+
+  /// When true, broker % is added to MHG comm in all investor-facing displays.
+  /// When false, broker is paid internally by MHG — platform shows only comm%.
+  broker_public Boolean @default(false)
+  // ── End broker fields ──────────────────────────────────────────────────────
+
+  /// Supabase Storage path — future scope.
+  image_path String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  investors      Investor[]
+  bookings       Booking[]
+  daily_expenses DailyExpense[]
+  payouts        Payout[]
+
+  @@map("properties")
+}
+
+model Investor {
+  id          String   @id @default(cuid())
+  property_id String
+  property    Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+
+  name String
+
+  contact String?
+  email   String?
+
+  /// Used in calcROI(). Returns null (not 0) when zero.
+  capital   Decimal @db.Decimal(14, 2)
+
+  /// Profit share percentage (e.g. 40.000 = 40%).
+  share_pct Decimal @db.Decimal(6, 3)
+
+  notes String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  payouts Payout[]
+
+  @@map("investors")
+}
+
+model Guest {
+  id          String  @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  nationality String?
+  city        String?
+  notes       String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  bookings Booking[]
+
+  @@map("guests")
+}
+
+model Booking {
+  id          String   @id @default(cuid())
+  property_id String
+  property    Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+
+  guest_id String?
+  guest    Guest?  @relation(fields: [guest_id], references: [id], onDelete: SetNull)
+
+  check_in  DateTime @db.Date
+  check_out DateTime @db.Date
+
+  nights  Int
+  revenue Decimal @db.Decimal(14, 2)
+
+  room_amount  Decimal? @db.Decimal(14, 2)
+  booking_type String?
+  event_type   String?
+  event_guests Int?
+  food_cost    Decimal? @db.Decimal(14, 2)
+  services     String?
+  rating       Int?
+
+  platform String?
+  status   String  @default("confirmed")
+  notes    String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("bookings")
+}
+
+// =============================================================================
+// FINANCE
+// =============================================================================
+
+model DailyExpense {
+  id          String   @id @default(cuid())
+  property_id String
+  property    Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+
+  expense_date DateTime @db.Date
+  category     String
+  description  String?
+  amount       Decimal  @db.Decimal(14, 2)
+  invoice_path String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("daily_expenses")
+}
+
+model Payout {
+  id          String   @id @default(cuid())
+  property_id String
+  property    Property @relation(fields: [property_id], references: [id], onDelete: Cascade)
+
+  investor_id String
+  investor    Investor @relation(fields: [investor_id], references: [id], onDelete: Cascade)
+
+  year  Int
+  month Int
+
+  amount_owed Decimal @db.Decimal(14, 2)
+  amount_paid Decimal?  @db.Decimal(14, 2)
+  paid_on     DateTime? @db.Date
+  reference   String?
+  notes       String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("payouts")
+}
+
+// =============================================================================
+// REPORTING
+// =============================================================================
+
+model Report {
+  id          String  @id @default(cuid())
+  property_id String?
+
+  title       String
+  period_type String
+  year        Int
+  month       Int?
+
+  data Json
+
+  created_at DateTime @default(now())
+
+  @@map("reports")
+}
+
+// =============================================================================
+// CONFIG
+// =============================================================================
+
+model UtilsSetting {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  value       Json
+  description String?
+
+  updated_at DateTime @updatedAt
+
+  @@map("utils_settings")
+}
