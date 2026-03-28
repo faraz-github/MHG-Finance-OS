@@ -286,15 +286,16 @@ export function PropertiesClient({
           <div style={{ display: 'flex', gap: '6px' }}>
             <button className="btn btn-g btn-sm" onClick={() => {
               downloadCsv(
-                ['Property', 'City', 'Comm%', 'Revenue', 'Investor Net', 'Commission', 'Occupancy', 'ROI'],
+                ['Property', 'City', 'Comm%', 'Capital Invested', 'Revenue', 'Investor Net', 'Commission', 'Occupancy', 'ROI'],
                 visibleProperties.map((p) => {
                   const lR = propAggMap[p.id];
                   return [
                     p.name, p.city || '', `${p.effectiveComm}%`,
+                    p.capital > 0 ? String(p.capital) : '—',
                     lR ? String(lR.rev) : '', lR ? String(lR.invProfit) : '',
                     lR ? String(lR.commission) : '',
                     lR ? `${(lR.occ ?? 0).toFixed(1)}%` : '',
-                    lR?.roi !== null && lR?.roi !== undefined ? `${lR.roi.toFixed(2)}%` : 'N/A',
+                    lR?._hasCapital ? `${(lR.roi ?? 0).toFixed(2)}%` : 'N/A',
                   ];
                 }),
                 `mg-properties-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -304,16 +305,17 @@ export function PropertiesClient({
               const { exportTablePdf } = await import('@/components/layout/exportPdf');
               await exportTablePdf({
                 title: 'Properties',
-                headers: ['Property', 'City', 'Comm%', 'Revenue', 'Investor Net', 'Commission', 'Occupancy', 'ROI'],
+                headers: ['Property', 'City', 'Comm%', 'Capital Invested', 'Revenue', 'Investor Net', 'Commission', 'Occupancy', 'ROI'],
                 rows: visibleProperties.map((p) => {
                   const lR = propAggMap[p.id];
                   return [
                     p.name, p.city || '', `${p.effectiveComm}%`,
+                    p.capital > 0 ? 'Rs. ' + p.capital.toLocaleString('en-IN') : '—',
                     lR ? 'Rs. ' + lR.rev.toLocaleString('en-IN') : '—',
                     lR ? 'Rs. ' + lR.invProfit.toLocaleString('en-IN') : '—',
                     lR ? 'Rs. ' + lR.commission.toLocaleString('en-IN') : '—',
                     lR ? `${(lR.occ ?? 0).toFixed(1)}%` : '—',
-                    lR?.roi !== null && lR?.roi !== undefined ? `${lR.roi.toFixed(2)}%` : 'N/A',
+                    lR?._hasCapital ? `${(lR.roi ?? 0).toFixed(2)}%` : 'N/A',
                   ];
                 }),
                 filename: `mg-properties-${new Date().toISOString().slice(0, 10)}.pdf`,
@@ -344,6 +346,7 @@ export function PropertiesClient({
                     <th>Property</th>
                     <th>City</th>
                     <th>Comm%</th>
+                    <th>Capital Invested</th>
                     <th>Revenue</th>
                     <th>Investor Net</th>
                     <th>MHG Commission</th>
@@ -380,6 +383,13 @@ export function PropertiesClient({
                         {/* Comm% — shows effectiveComm; broker detail kept private in table */}
                         <td>
                           <span className="pill o">{p.effectiveComm}%</span>
+                        </td>
+
+                        {/* Capital Invested — sum of all investor capitals for this property */}
+                        <td>
+                          {p.capital > 0
+                            ? <span style={{ fontWeight: 600, color: 'var(--t2)' }}>{fF(p.capital)}</span>
+                            : <span style={{ color: 'var(--t3)' }}>—</span>}
                         </td>
 
                         {/* Revenue */}
@@ -493,7 +503,7 @@ export function PropertiesClient({
         {panelProp && (
           panelLatestRep ? (
             <>
-              <div style={{ fontSize: '10.5px', fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: '9px' }}>
+              <div className="dp-sl">
                 {MN[panelLatestRep.month]} {panelLatestRep.year} — Latest Data
               </div>
 

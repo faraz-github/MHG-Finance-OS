@@ -77,6 +77,7 @@ export function InvModal({
 
   async function handleSubmit() {
     if (!form.name.trim()) return;
+    if (!form.contact.trim()) return;
     await onSave(
       {
         name:       form.name.trim(),
@@ -109,12 +110,12 @@ export function InvModal({
           />
         </div>
         <div className={styles.fl}>
-          <label>Contact / Email</label>
+          <label>Contact / Email *</label>
           <input
             className={styles.fi}
             value={form.contact}
             onChange={(e) => set('contact', e.target.value)}
-            placeholder="phone or email"
+            placeholder="phone or email (required)"
           />
         </div>
       </div>
@@ -211,7 +212,7 @@ export function InvModal({
           type="button"
           className={`${styles.mb} ${styles.sub}`}
           onClick={handleSubmit}
-          disabled={isSaving || !form.name.trim()}
+          disabled={isSaving || !form.name.trim() || !form.contact.trim()}
         >
           {isSaving ? 'Saving…' : editId ? 'Update Investor' : 'Save Investor'}
         </button>

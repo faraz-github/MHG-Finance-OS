@@ -390,6 +390,14 @@ tbody td {
 .fsel:focus { border-color: var(--or); }
 
 /* Detail-panel KPI mini-grid — used inline in page Client Components */
+.dp-sl {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-bottom: 9px;
+}
 .dp-kpi {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

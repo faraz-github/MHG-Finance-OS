@@ -205,12 +205,14 @@ export async function POST(
 }
 
 // ---------------------------------------------------------------------------
-// DELETE — hard delete for admin correction (SuperAdmin only)
+// DELETE — hard delete (SuperAdmin only)
+// Purges the report AND all bookings, daily expenses, AND payout ledger entries
+// for that property × month × year — the full source of truth.
 // ---------------------------------------------------------------------------
 
 export async function DELETE(
   request: NextRequest
-): Promise<NextResponse<{ success: true } | ErrorResponse>> {
+): Promise<NextResponse<{ success: true; deleted: { report: number; bookings: number; expenses: number; payouts: number } } | ErrorResponse>> {
   const role = request.headers.get("x-user-role") ?? "";
 
   try {
@@ -235,8 +237,52 @@ export async function DELETE(
   }
 
   try {
+    // 1. Fetch the report to get property_id, month, year
+    const report = await prisma.report.findUnique({
+      where: { id: id.trim() },
+      select: { id: true, property_id: true, month: true, year: true },
+    });
+
+    if (!report) {
+      return NextResponse.json({ error: "Report not found." }, { status: 404 });
+    }
+
+    const { property_id, month, year } = report;
+
+    if (!property_id || !month || !year) {
+      await prisma.report.delete({ where: { id: id.trim() } });
+      return NextResponse.json({ success: true, deleted: { report: 1, bookings: 0, expenses: 0, payouts: 0 } });
+    }
+
+    // 2. Date range covering the full calendar month (UTC)
+    const monthStart = new Date(Date.UTC(year, month - 1, 1));
+    const monthEnd   = new Date(Date.UTC(year, month, 0));  // last day of month
+
+    // 3. Delete bookings, expenses, and payouts atomically, then the report
+    const [bookingsResult, expensesResult, payoutsResult] = await prisma.$transaction([
+      prisma.booking.deleteMany({
+        where: { property_id, check_in: { gte: monthStart, lte: monthEnd } },
+      }),
+      prisma.dailyExpense.deleteMany({
+        where: { property_id, expense_date: { gte: monthStart, lte: monthEnd } },
+      }),
+      // Payouts are stored with year + month integers — match directly
+      prisma.payout.deleteMany({
+        where: { property_id, year, month },
+      }),
+    ]);
+
     await prisma.report.delete({ where: { id: id.trim() } });
-    return NextResponse.json({ success: true });
+
+    return NextResponse.json({
+      success: true,
+      deleted: {
+        report:   1,
+        bookings: bookingsResult.count,
+        expenses: expensesResult.count,
+        payouts:  payoutsResult.count,
+      },
+    });
   } catch (err) {
     return handleError(err);
   }

@@ -18,6 +18,7 @@
 
 import { useState, useMemo, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import styles from '@/components/ui/ui.module.css';
 import { usePeriod } from '@/hooks/usePeriod';
 import { usePageFilters } from '@/hooks/usePageFilters';
 import { downloadCsv } from '@/lib/csvDownload';
@@ -172,6 +173,7 @@ const EXPORT_CARDS = [
 interface ReportsClientProps {
   reports: SerializableReport[];
   properties: ReportsProperty[];
+  canDelete: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +183,7 @@ interface ReportsClientProps {
 export function ReportsClient({
   reports,
   properties,
+  canDelete,
 }: ReportsClientProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -195,6 +198,8 @@ export function ReportsClient({
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [snapshotRep, setSnapshotRep]   = useState<SerializableReport | null>(null);
   const [isRegen, setIsRegen]           = useState(false);
+  const [deleteRep, setDeleteRep]       = useState<SerializableReport | null>(null);
+  const [isDeleting, setIsDeleting]     = useState(false);
 
   // ── Property lookup ───────────────────────────────────────────────────────
   const propMap = useMemo(
@@ -268,6 +273,34 @@ export function ReportsClient({
       toast('Network error — please try again', 'er');
     } finally {
       setIsRegen(false);
+    }
+  }
+
+  async function handleDeleteReport() {
+    if (!deleteRep) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch('/api/reports', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ id: deleteRep.id }),
+      });
+      const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string; deleted?: { report: number; bookings: number; expenses: number; payouts: number } };
+      if (!res.ok) {
+        toast(data.error ?? 'Failed to delete report', 'er');
+        return;
+      }
+      const d = data.deleted;
+      const summary = d
+        ? `report + ${d.bookings} booking${d.bookings !== 1 ? 's' : ''} + ${d.expenses} expense${d.expenses !== 1 ? 's' : ''} + ${d.payouts} payout${d.payouts !== 1 ? 's' : ''}`
+        : 'report';
+      toast(`✓ Deleted: ${summary} — ${propMap[deleteRep.pid]?.name ?? ''} ${MN[deleteRep.month]} ${deleteRep.year}`, 'ok');
+      setDeleteRep(null);
+      startTransition(() => router.refresh());
+    } catch {
+      toast('Network error — please try again', 'er');
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -493,6 +526,17 @@ export function ReportsClient({
                       >
                         ↓ PDF
                       </button>
+                      {/* Delete — SuperAdmin only */}
+                      {canDelete && (
+                        <button
+                          className="btn btn-rd btn-sm"
+                          title="Delete this report"
+                          onClick={() => setDeleteRep(r)}
+                          style={{ marginLeft: '2px' }}
+                        >
+                          🗑
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -579,6 +623,70 @@ export function ReportsClient({
           <ReportSnapshot rep={snapshotRep} propMap={propMap} />
         )}
       </DetailPanel>
+
+      {/* ══ Delete Report Confirm Modal ══════════════════════════════════════ */}
+      {canDelete && (
+        <div
+          className={`${styles.ov}${deleteRep ? ' ' + styles.open : ''}`}
+          onClick={() => !isDeleting && setDeleteRep(null)}
+        >
+          <div
+            className={styles.modal}
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '420px' }}
+          >
+            <button className={styles['mc-x']} onClick={() => setDeleteRep(null)} disabled={isDeleting}>✕</button>
+            <div className={styles.mt} style={{ color: 'var(--rd)' }}>Delete Report</div>
+            <div className={styles.ms}>This action cannot be undone.</div>
+
+            {deleteRep && (
+              <>
+                <div style={{
+                  background: 'var(--rdp)', border: '1px solid var(--rd)',
+                  borderRadius: '8px', padding: '12px 14px', marginBottom: '16px',
+                  fontSize: '13px', color: 'var(--rd)',
+                }}>
+                  <strong>{propMap[deleteRep.pid]?.name ?? 'Unknown'}</strong>
+                  {' — '}{MN[deleteRep.month]} {deleteRep.year}
+                  <div style={{ fontSize: '11.5px', color: 'var(--t2)', marginTop: '4px' }}>
+                    Rev: {fIN(deleteRep.rev)} · Profit: {fIN(deleteRep.opProfit)} · Occ: {(deleteRep.occ ?? 0).toFixed(1)}%
+                  </div>
+                </div>
+                <p style={{ fontSize: '12.5px', color: 'var(--t2)', marginBottom: '16px', lineHeight: 1.5 }}>
+                  This will permanently delete:
+                </p>
+                <div style={{ background: 'var(--bg2)', borderRadius: '7px', padding: '10px 14px', marginBottom: '16px', fontSize: '12.5px', lineHeight: 1.7 }}>
+                  <div>🗑 The report summary</div>
+                  <div>🗑 All bookings for this property in this month</div>
+                  <div>🗑 All daily expenses for this property in this month</div>
+                  <div>🗑 All payout ledger entries for this property in this month</div>
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--rd)', marginBottom: '4px', fontWeight: 600 }}>
+                  This cannot be undone.
+                </p>
+              </>
+            )}
+
+            <div className={styles.mf}>
+              <button
+                className={`${styles.mb} ${styles.can}`}
+                onClick={() => setDeleteRep(null)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.mb}
+                style={{ background: 'var(--rd)', color: '#fff' }}
+                onClick={handleDeleteReport}
+                disabled={isDeleting}
+              >
+                {isDeleting ? 'Deleting…' : 'Delete Report'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -625,7 +733,7 @@ function ReportSnapshot({
   return (
     <>
       {/* Period header */}
-      <div style={{ fontSize: '10.5px', fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: '12px' }}>
+      <div className="dp-sl" style={{ marginBottom: '12px' }}>
         {prop?.name ?? 'Unknown'} — {MN[rep.month]} {rep.year}
       </div>
 

@@ -33,7 +33,7 @@ import type { SerializableReport } from '../dashboard/page';
 export interface SerializableInvestor {
   id: string;
   name: string;
-  /** Mapped from Investor.notes until contact field is added to schema */
+  /** Investor contact — phone or email */
   contact: string;
   capital: number;
   sharePct: number;
@@ -67,7 +67,7 @@ export default async function InvestorsPage() {
     select: {
       id:          true,
       name:        true,
-      notes:       true,   // contact mapped here until schema migration
+      contact:     true,
       capital:     true,
       share_pct:   true,
       property_id: true,
@@ -78,7 +78,7 @@ export default async function InvestorsPage() {
   const investors: SerializableInvestor[] = rawInvestors.map((i) => ({
     id:         i.id,
     name:       i.name,
-    contact:    i.notes ?? '',
+    contact:    i.contact ?? '',
     capital:    Number(i.capital),
     sharePct:   Number(i.share_pct),
     propertyId: i.property_id,

@@ -59,8 +59,9 @@ export interface SerializablePayout {
   propertyId: string;
   propertyName: string;
   propertyCity: string;
-  investorId: string;
-  investorName: string;
+  investorId:      string;
+  investorName:    string;
+  investorContact: string;
   year: number;
   month: number;
   amountOwed: number;
@@ -106,7 +107,7 @@ export default async function PayoutsPage() {
         name: true,
         city: true,
       }},
-      investor:    { select: { name: true } },
+      investor:    { select: { name: true, contact: true } },
     },
     orderBy: [{ year: 'desc' }, { month: 'desc' }],
   });
@@ -116,8 +117,9 @@ export default async function PayoutsPage() {
     propertyId:   p.property_id,
     propertyName: p.property.name,
     propertyCity: p.property.city ?? '',
-    investorId:   p.investor_id,
-    investorName: p.investor.name,
+    investorId:      p.investor_id,
+    investorName:    p.investor.name,
+    investorContact: p.investor.contact ?? '',
     year:         p.year,
     month:        p.month,
     amountOwed:   Number(p.amount_owed),

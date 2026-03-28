@@ -9,7 +9,7 @@
 //   - Detail panel with all-time KPIs + period history (investor's share only)
 //   - Charts: Payout bar + Payout Distribution donut (InvCharts)
 
-import { useState, useMemo, useTransition } from 'react';
+import React, { useState, useMemo, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { usePeriod } from '@/hooks/usePeriod';
@@ -90,6 +90,15 @@ export function InvestorsClient({
   const [isSaving, setIsSaving]     = useState(false);
   const [panelOpen, setPanelOpen]   = useState(false);
   const [panelInv, setPanelInv]     = useState<SerializableInvestor | null>(null);
+  const [expandedNames, setExpandedNames] = useState<Set<string>>(new Set());
+
+  function toggleExpand(name: string) {
+    setExpandedNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }
 
   // ── Period store + per-page filters ───────────────────────────────────────
   const { getFilteredReps } = usePeriod();
@@ -139,6 +148,42 @@ export function InvestorsClient({
     });
     return m;
   }, [filteredReps, investors]);
+
+  // ── Group investors by name+contact for accordion table ─────────────────
+  // Key = name + contact so two different people with the same name
+  // are not incorrectly merged. Same person across multiple properties
+  // will share the same name AND contact, so they group correctly.
+  const groupedInvestors = useMemo(() => {
+    const map = new Map<string, SerializableInvestor[]>();
+    investors.forEach((inv) => {
+      const key = `${inv.name.trim()}||${(inv.contact ?? '').trim()}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(inv);
+    });
+    return [...map.entries()].map(([, rows]) => {
+      const totalCapital = rows.reduce((s, r) => s + (r.capital ?? 0), 0);
+      const totalPayout  = rows.reduce((s, r) => s + (invPayoutMap[r.id] ?? 0), 0);
+      // Combined ROI = period payout / total capital — NOT an average of individual %s
+      // Averaging 5.1% + 0% = 2.6% is wrong; ₹2,300 / ₹11,00,000 = 0.2% is correct
+      const combinedRoi  = totalCapital > 0
+        ? Math.round((totalPayout / totalCapital) * 10000) / 100  // 2 decimal %
+        : null;
+      const groupKey = `${rows[0].name.trim()}||${(rows[0].contact ?? '').trim()}`;
+      return { name: rows[0].name, groupKey, rows, totalCapital, totalPayout, combinedRoi };
+    });
+  }, [investors, invPayoutMap]);
+
+  // ── Period ROI per investor — payout / capital for current period ──────────
+  // investorRoi (from server) is all-time. periodRoi respects the period filter.
+  const periodRoi = useMemo(() => {
+    const m: Record<string, number | null> = {};
+    investors.forEach((inv) => {
+      const payout = invPayoutMap[inv.id] ?? 0;
+      const cap    = inv.capital ?? 0;
+      m[inv.id]    = cap > 0 ? Math.round((payout / cap) * 10000) / 100 : null;
+    });
+    return m;
+  }, [investors, invPayoutMap]);
 
   // ── Chart data: investors with positive payout ────────────────────────────
   const chartData = useMemo(
@@ -218,31 +263,46 @@ export function InvestorsClient({
     setPanelOpen(true);
   }
 
+  // All investment records for this investor (same name + contact = same person)
+  const panelGroupInvs = useMemo(() => {
+    if (!panelInv) return [];
+    const key = `${panelInv.name.trim()}||${(panelInv.contact ?? '').trim()}`;
+    return investors.filter((inv) =>
+      `${inv.name.trim()}||${(inv.contact ?? '').trim()}` === key
+    );
+  }, [panelInv, investors]);
+
+  // All report rows across all properties this investor is in
   const panelAllReps = useMemo(() => {
     if (!panelInv) return [];
+    const pids = new Set(panelGroupInvs.map((inv) => inv.propertyId));
     return allReps
-      .filter((r) => r.pid === panelInv.propertyId)
+      .filter((r) => pids.has(r.pid))
       .sort((a, b) => b.year * 100 + b.month - (a.year * 100 + a.month));
-  }, [panelInv, allReps]);
+  }, [panelInv, panelGroupInvs, allReps]);
 
-  // Investor's actual share = invProfit × (sharePct / 100) per report.
-  // We compute a scaled aggregate manually rather than using aggReps,
-  // since aggReps sums the full property pool without the per-investor split.
+  // Aggregate across all properties, respecting each investment's sharePct
   const panelAgg = useMemo(() => {
-    if (!panelInv || !panelAllReps.length) return null;
-    const shareFraction = (panelInv.sharePct || 0) / 100;
-    const agg = {
-      rev:        panelAllReps.reduce((s, r) => s + r.rev, 0),
-      exp:        panelAllReps.reduce((s, r) => s + r.exp, 0),
-      opProfit:   panelAllReps.reduce((s, r) => s + r.opProfit, 0),
-      commission: panelAllReps.reduce((s, r) => s + r.commission, 0),
-      // Investor net = invProfit × (sharePct / 100)
-  // sharePct = this investor's % of the investor pool (e.g. 25 for equal 4-way split)
-  // NOT % of total op profit. 4 investors × 25% = 100% of the pool.
-      invProfit:  panelAllReps.reduce((s, r) => s + r.invProfit * shareFraction, 0),
+    if (!panelGroupInvs.length || !panelAllReps.length) return null;
+    // Build a pid → shareFraction map
+    const shareMap: Record<string, number> = {};
+    panelGroupInvs.forEach((inv) => {
+      shareMap[inv.propertyId] = (inv.sharePct || 0) / 100;
+    });
+    return {
+      rev:       panelAllReps.reduce((s, r) => s + r.rev, 0),
+      exp:       panelAllReps.reduce((s, r) => s + r.exp, 0),
+      opProfit:  panelAllReps.reduce((s, r) => s + r.opProfit, 0),
+      commission:panelAllReps.reduce((s, r) => s + r.commission, 0),
+      invProfit: panelAllReps.reduce((s, r) => s + r.invProfit * (shareMap[r.pid] ?? 0), 0),
     };
-    return agg;
-  }, [panelInv, panelAllReps]);
+  }, [panelGroupInvs, panelAllReps]);
+
+  // Total capital across all investments for this person
+  const panelTotalCapital = useMemo(
+    () => panelGroupInvs.reduce((s, inv) => s + (inv.capital ?? 0), 0),
+    [panelGroupInvs],
+  );
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -259,7 +319,7 @@ export function InvestorsClient({
                 investors.map((inv) => {
                   const prop   = propMap[inv.propertyId];
                   const payout = invPayoutMap[inv.id] ?? 0;
-                  const roi    = investorRoi[inv.id];
+                  const roi    = periodRoi[inv.id];
                   return [
                     inv.name, inv.contact || '',
                     prop?.name || '',
@@ -280,7 +340,7 @@ export function InvestorsClient({
                 rows: investors.map((inv) => {
                   const prop   = propMap[inv.propertyId];
                   const payout = invPayoutMap[inv.id] ?? 0;
-                  const roi    = investorRoi[inv.id];
+                  const roi    = periodRoi[inv.id];
                   return [
                     inv.name,
                     prop?.name || '—',
@@ -312,10 +372,11 @@ export function InvestorsClient({
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            {/* Table — columns verbatim from HTML thead */}
+            {/* Table — grouped by investor name, accordion for multi-property investors */}
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: '28px' }} />
                   <th>Investor</th>
                   <th>Properties</th>
                   <th>Capital</th>
@@ -326,90 +387,134 @@ export function InvestorsClient({
                 </tr>
               </thead>
               <tbody>
-                {investors.map((inv) => {
-                  const prop   = propMap[inv.propertyId];
-                  const payout = invPayoutMap[inv.id] ?? 0;
-                  const roi    = investorRoi[inv.id] ?? null;
+                {groupedInvestors.map(({ name, groupKey, rows, totalCapital, totalPayout, combinedRoi }) => {
+                  const isMulti    = rows.length > 1;
+                  const isExpanded = expandedNames.has(groupKey);
+                  const singleInv  = rows[0];
 
                   return (
-                    <tr key={inv.id}>
-                      {/* Name + contact */}
-                      <td>
-                        <div
-                          style={{ fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-                          onClick={() => openDetail(inv)}
-                        >
-                          {inv.name}
-                        </div>
-                        {inv.contact && (
-                          <div style={{ fontSize: '10.5px', color: 'var(--t3)' }}>
-                            {inv.contact}
-                          </div>
-                        )}
-                      </td>
+                    <React.Fragment key={groupKey}>
+                      {/* ── Summary row ─────────────────────────────────── */}
+                      <tr
+                        style={{ background: isExpanded ? 'var(--bg2)' : undefined, cursor: isMulti ? 'pointer' : undefined }}
+                        onClick={isMulti ? () => toggleExpand(groupKey) : undefined}
+                      >
+                        {/* Expand toggle */}
+                        <td style={{ textAlign: 'center', color: 'var(--t3)', fontSize: '10px', userSelect: 'none' }}>
+                          {isMulti ? (isExpanded ? '▼' : '▶') : ''}
+                        </td>
 
-                      {/* Linked property pill */}
-                      <td style={{ maxWidth: '200px' }}>
-                        {prop
-                          ? <span className="pill b" style={{ margin: '1px 2px', display: 'inline-block' }}>{prop.name}</span>
-                          : <span style={{ color: 'var(--t3)' }}>—</span>}
-                      </td>
-
-                      {/* Capital */}
-                      <td>{inv.capital ? fF(inv.capital) : '—'}</td>
-
-                      {/* Profit Share % */}
-                      <td>{inv.sharePct ? inv.sharePct + '%' : '—'}</td>
-
-                      {/* Net payout (period-filtered) */}
-                      <td style={{ fontWeight: 800, color: 'var(--gr)' }}>
-                        {fF(payout)}
-                      </td>
-
-                      {/* ROI — verbatim colour logic from HTML */}
-                      <td style={{
-                        fontWeight: 800,
-                        color: roi !== null
-                          ? roi >= 20 ? 'var(--gr)' : 'var(--go)'
-                          : 'var(--t3)',
-                      }}>
-                        {roi !== null ? (
-                          roi + '%'
-                        ) : (
-                          <span
-                            title="Capital not entered for linked properties"
-                            style={{ cursor: 'help', textDecoration: 'underline dotted', color: 'var(--t3)' }}
+                        {/* Name + contact */}
+                        <td>
+                          <div style={{ fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                            onClick={(e) => { e.stopPropagation(); openDetail(singleInv); }}
                           >
-                            N/A
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      {(canEdit || canDelete) && (
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          {canEdit && (
-                            <button
-                              className="btn btn-g btn-sm"
-                              title="Edit"
-                              onClick={() => handleEdit(inv)}
-                            >
-                              ✏️
-                            </button>
+                            {name}
+                          </div>
+                          {!isMulti && singleInv.contact && (
+                            <div style={{ fontSize: '10.5px', color: 'var(--t3)' }}>{singleInv.contact}</div>
                           )}
-                          {canDelete && (
-                            <button
-                              className="btn btn-rd btn-sm"
-                              title="Delete"
-                              onClick={() => handleDelete(inv)}
-                              style={{ marginLeft: '4px' }}
-                            >
-                              🗑
-                            </button>
+                          {isMulti && (
+                            <div style={{ fontSize: '10.5px', color: 'var(--t3)' }}>
+                              {rows.length} properties
+                            </div>
                           )}
                         </td>
-                      )}
-                    </tr>
+
+                        {/* Property pills */}
+                        <td style={{ maxWidth: '220px' }}>
+                          {rows.map((inv) => {
+                            const p = propMap[inv.propertyId];
+                            return p
+                              ? <span key={inv.id} className="pill b" style={{ margin: '1px 2px', display: 'inline-block' }}>{p.name}</span>
+                              : null;
+                          })}
+                        </td>
+
+                        {/* Capital — total when grouped */}
+                        <td>{totalCapital > 0 ? fF(totalCapital) : '—'}</td>
+
+                        {/* Pool Share% — show only when single */}
+                        <td>{!isMulti ? (singleInv.sharePct ? singleInv.sharePct + '%' : '—') : <span style={{ color: 'var(--t3)', fontSize: '11px' }}>—</span>}</td>
+
+                        {/* Net payout — total */}
+                        <td style={{ fontWeight: 800, color: 'var(--gr)' }}>{fF(totalPayout)}</td>
+
+                        {/* ROI — avg when grouped */}
+                        <td style={{
+                          fontWeight: 800,
+                          color: combinedRoi !== null ? (combinedRoi >= 20 ? 'var(--gr)' : 'var(--go)') : 'var(--t3)',
+                        }}>
+                          {combinedRoi !== null ? combinedRoi + '%' : (
+                            <span title="Capital not entered" style={{ cursor: 'help', textDecoration: 'underline dotted', color: 'var(--t3)' }}>N/A</span>
+                          )}
+                        </td>
+
+                        {/* Actions — single investor only */}
+                        {(canEdit || canDelete) && (
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {!isMulti && canEdit && (
+                              <button className="btn btn-g btn-sm" title="Edit" onClick={(e) => { e.stopPropagation(); handleEdit(singleInv); }}>✏️</button>
+                            )}
+                            {!isMulti && canDelete && (
+                              <button className="btn btn-rd btn-sm" title="Delete" onClick={(e) => { e.stopPropagation(); handleDelete(singleInv); }} style={{ marginLeft: '4px' }}>🗑</button>
+                            )}
+                            {isMulti && (
+                              <span style={{ fontSize: '10.5px', color: 'var(--t3)' }}>expand ↑↓</span>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+
+                      {/* ── Expanded child rows ──────────────────────────── */}
+                      {isMulti && isExpanded && rows.map((inv) => {
+                        const prop   = propMap[inv.propertyId];
+                        const payout = invPayoutMap[inv.id] ?? 0;
+                        const roi    = periodRoi[inv.id] ?? null;
+                        return (
+                          <tr key={inv.id} style={{ background: 'var(--bg2)', borderLeft: '3px solid var(--or)' }}>
+                            {/* indent */}
+                            <td />
+                            {/* name — indented sub-row indicator */}
+                            <td style={{ paddingLeft: '22px' }}>
+                              <div style={{ fontSize: '11.5px', color: 'var(--t2)', fontStyle: 'italic' }}>
+                                {inv.contact || '—'}
+                              </div>
+                            </td>
+                            {/* property */}
+                            <td>
+                              {prop
+                                ? <span className="pill b" style={{ display: 'inline-block' }}>{prop.name}</span>
+                                : <span style={{ color: 'var(--t3)' }}>—</span>}
+                            </td>
+                            {/* capital */}
+                            <td>{inv.capital ? fF(inv.capital) : '—'}</td>
+                            {/* pool share */}
+                            <td>{inv.sharePct ? inv.sharePct + '%' : '—'}</td>
+                            {/* payout */}
+                            <td style={{ fontWeight: 700, color: 'var(--gr)' }}>{fF(payout)}</td>
+                            {/* roi */}
+                            <td style={{
+                              fontWeight: 700,
+                              color: roi !== null ? (roi >= 20 ? 'var(--gr)' : 'var(--go)') : 'var(--t3)',
+                            }}>
+                              {roi !== null ? roi + '%' : <span title="Capital not entered" style={{ cursor: 'help', textDecoration: 'underline dotted', color: 'var(--t3)' }}>N/A</span>}
+                            </td>
+                            {/* actions */}
+                            {(canEdit || canDelete) && (
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                {canEdit && (
+                                  <button className="btn btn-g btn-sm" title="Edit" onClick={() => handleEdit(inv)}>✏️</button>
+                                )}
+                                {canDelete && (
+                                  <button className="btn btn-rd btn-sm" title="Delete" onClick={() => handleDelete(inv)} style={{ marginLeft: '4px' }}>🗑</button>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -441,62 +546,129 @@ export function InvestorsClient({
         isOpen={panelOpen}
         onClose={() => setPanelOpen(false)}
         title={panelInv?.name ?? ''}
-        sub={
-          panelInv
-            ? [
-                panelInv.contact || null,
-                panelInv.capital ? `Capital: ${fF(panelInv.capital)}` : null,
-                panelInv.sharePct ? `Pool Share: ${panelInv.sharePct}% of inv. pool` : null,
-              ].filter(Boolean).join(' · ')
-            : ''
-        }
+        sub={panelInv?.contact ? panelInv.contact : ''}
       >
         {panelInv && (
           <>
-            {/* Linked property */}
-            {propMap[panelInv.propertyId] && (
-              <div style={{ marginBottom: '14px' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: '6px' }}>
-                  Linked Property
+            {/* ── Investor Info ──────────────────────────────────────────── */}
+            <div style={{ marginBottom: '18px' }}>
+              <div className="dp-sl">Investor Profile</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div className="dp-k" style={{ gridColumn: '1 / -1' }}>
+                  <div className="dp-kl">Name</div>
+                  <div className="dp-kv" style={{ color: 'var(--tx)', fontWeight: 700 }}>{panelInv.name}</div>
                 </div>
-                <span className="pill b">{propMap[panelInv.propertyId].name}</span>
+                {panelInv.contact && (
+                  <div className="dp-k" style={{ gridColumn: '1 / -1' }}>
+                    <div className="dp-kl">Contact</div>
+                    <div className="dp-kv" style={{ color: 'var(--tx)' }}>{panelInv.contact}</div>
+                  </div>
+                )}
+                <div className="dp-k">
+                  <div className="dp-kl">Total Capital</div>
+                  <div className="dp-kv" style={{ color: 'var(--tx)' }}>{fF(panelTotalCapital)}</div>
+                </div>
+                <div className="dp-k">
+                  <div className="dp-kl">Properties</div>
+                  <div className="dp-kv" style={{ color: 'var(--tx)' }}>{panelGroupInvs.length}</div>
+                </div>
               </div>
-            )}
+            </div>
 
-            {/* All-time aggregate KPIs */}
+            {/* ── Linked Properties ──────────────────────────────────────── */}
+            <div style={{ marginBottom: '18px' }}>
+              <div className="dp-sl">
+                {panelGroupInvs.length > 1 ? 'Linked Properties' : 'Linked Property'}
+              </div>
+              {panelGroupInvs.map((inv) => {
+                const prop = propMap[inv.propertyId];
+                return prop ? (
+                  <div key={inv.id} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: 'var(--bg2)', borderRadius: '7px',
+                    padding: '8px 12px', marginBottom: '6px',
+                    border: '1px solid var(--bdr)',
+                  }}>
+                    <div>
+                      <span className="pill b" style={{ marginRight: '8px' }}>{prop.name}</span>
+                      {prop.city && <span style={{ fontSize: '11px', color: 'var(--t3)' }}>{prop.city}</span>}
+                    </div>
+                    <div style={{ textAlign: 'right', fontSize: '11.5px' }}>
+                      <span style={{ color: 'var(--t2)', fontWeight: 600 }}>{fF(inv.capital)}</span>
+                      <span style={{ color: 'var(--t3)', marginLeft: '8px' }}>{inv.sharePct}% pool</span>
+                    </div>
+                  </div>
+                ) : null;
+              })}
+            </div>
+
+            {/* ── All-time aggregate KPIs ─────────────────────────────────── */}
             {panelAgg ? (
               <>
-                <div style={{ fontSize: '10.5px', fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: '9px' }}>
-                  All-Time Performance
-                </div>
+                <div className="dp-sl">All-Time Performance</div>
                 <div className="dp-kpi">
-                  <div className="dp-k"><div className="dp-kl">Total Revenue</div><div className="dp-kv">{fF(panelAgg.rev)}</div></div>
-                  <div className="dp-k"><div className="dp-kl">Total Expenses</div><div className="dp-kv" style={{ color: 'var(--rd)' }}>{fF(panelAgg.exp)}</div></div>
-                  <div className="dp-k"><div className="dp-kl">Op. Profit</div><div className="dp-kv" style={{ color: 'var(--gr)' }}>{fF(panelAgg.opProfit)}</div></div>
-                  <div className="dp-k"><div className="dp-kl">Commission</div><div className="dp-kv" style={{ color: 'var(--or)' }}>{fF(panelAgg.commission)}</div></div>
-                  <div className="dp-k"><div className="dp-kl">Investor Net</div><div className="dp-kv" style={{ color: 'var(--bl)' }}>{fF(panelAgg.invProfit)}</div></div>
+                  <div className="dp-k">
+                    <div className="dp-kl">Total Revenue</div>
+                    <div className="dp-kv">{fF(panelAgg.rev)}</div>
+                  </div>
+                  <div className="dp-k">
+                    <div className="dp-kl">Total Expenses</div>
+                    <div className="dp-kv" style={{ color: 'var(--rd)' }}>{fF(panelAgg.exp)}</div>
+                  </div>
+                  <div className="dp-k">
+                    <div className="dp-kl">Op. Profit</div>
+                    <div className="dp-kv" style={{ color: 'var(--gr)' }}>{fF(panelAgg.opProfit)}</div>
+                  </div>
+                  <div className="dp-k">
+                    <div className="dp-kl">Commission</div>
+                    <div className="dp-kv" style={{ color: 'var(--or)' }}>{fF(panelAgg.commission)}</div>
+                  </div>
+                  <div className="dp-k">
+                    <div className="dp-kl">Investor Net</div>
+                    <div className="dp-kv" style={{ color: 'var(--bl)' }}>{fF(panelAgg.invProfit)}</div>
+                  </div>
                   <div className="dp-k">
                     <div className="dp-kl">ROI</div>
                     <div className="dp-kv" style={{
-                      color: investorRoi[panelInv.id] !== null
-                        ? (investorRoi[panelInv.id]! >= 20 ? 'var(--gr)' : 'var(--go)')
+                      color: panelTotalCapital > 0
+                        ? (panelAgg.invProfit / panelTotalCapital * 100 >= 20 ? 'var(--gr)' : 'var(--go)')
                         : 'var(--t3)',
                     }}>
-                      {/* formatROI from finance.ts — never recalculate inline */}
-                      {formatROI(panelAgg.invProfit, panelInv.capital ?? 0)}
+                      {panelTotalCapital > 0
+                        ? (panelAgg.invProfit / panelTotalCapital * 100).toFixed(2) + '%'
+                        : 'N/A'}
                     </div>
                   </div>
                 </div>
 
-                {panelAllReps.length > 0 && (
-                  <InvReportHistory reps={panelAllReps} MS={MS} sharePct={panelInv.sharePct} />
+                {/* Period history — per-property when multi-property investor */}
+                {panelGroupInvs.length === 1 ? (
+                  panelAllReps.length > 0 && (
+                    <InvReportHistory reps={panelAllReps} MS={MS} sharePct={panelGroupInvs[0].sharePct} />
+                  )
+                ) : (
+                  panelGroupInvs.map((inv) => {
+                    const prop = propMap[inv.propertyId];
+                    const propReps = panelAllReps.filter((r) => r.pid === inv.propertyId);
+                    if (!prop || !propReps.length) return null;
+                    return (
+                      <div key={inv.id} style={{ marginBottom: '8px' }}>
+                        <InvReportHistory
+                          reps={propReps}
+                          MS={MS}
+                          sharePct={inv.sharePct}
+                          label={prop.name}
+                        />
+                      </div>
+                    );
+                  })
                 )}
               </>
             ) : (
               <div className="es" style={{ margin: '0 0 16px' }}>
                 <div className="es-ico">📊</div>
-                <div className="es-t">No Data</div>
-                <div className="es-s">No reports for this investor's property yet.</div>
+                <div className="es-t">No Data Yet</div>
+                <div className="es-s">No reports for this investor's properties yet.</div>
               </div>
             )}
           </>
@@ -511,11 +683,12 @@ export function InvestorsClient({
 // ---------------------------------------------------------------------------
 
 function InvReportHistory({
-  reps, MS, sharePct,
+  reps, MS, sharePct, label,
 }: {
   reps: RepRow[];
   MS: string[];
   sharePct: number;
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   // fF from module scope used for exact .00 precision in table cells
@@ -524,11 +697,15 @@ function InvReportHistory({
   return (
     <div style={{ marginTop: '8px' }}>
       <div
-        style={{ cursor: 'pointer', fontSize: '11.5px', fontWeight: 700, marginBottom: '7px', display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none' }}
+        style={{ cursor: 'pointer', fontSize: '11.5px', fontWeight: 700, marginBottom: '7px', display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none', color: 'var(--t2)' }}
         onClick={() => setOpen((v) => !v)}
       >
-        <span>{open ? '▼' : '▶'}</span>
-        Period History ({reps.length})
+        <span style={{ color: 'var(--t3)' }}>{open ? '▼' : '▶'}</span>
+        {label ? (
+          <><span className="pill b" style={{ fontSize: '10px' }}>{label}</span><span>Period History ({reps.length})</span></>
+        ) : (
+          <span>Period History ({reps.length})</span>
+        )}
       </div>
       {open && (
         <div style={{ overflow: 'auto', border: '1px solid var(--bdr)', borderRadius: '8px' }}>

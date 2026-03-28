@@ -135,14 +135,21 @@ export function PayoutsClient({
   );
 
   // ── Unique investors for filter dropdown ──────────────────────────────────
+  // Group by name+contact so the same person investing in multiple properties
+  // appears only once in the dropdown.
   const uniqueInvestors = useMemo(() => {
-    const seen = new Map<string, string>();
-    payouts.forEach((p) => { if (!seen.has(p.investorId)) seen.set(p.investorId, p.investorName); });
-    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+    const seen = new Map<string, string>(); // groupKey → display name
+    payouts.forEach((p) => {
+      const key = `${p.investorName.trim()}||${(p.investorContact ?? '').trim()}`;
+      if (!seen.has(key)) seen.set(key, p.investorName);
+    });
+    return [...seen.entries()]
+      .map(([key, name]) => ({ key, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [payouts]);
 
   const investorOptions: FilterOption[] = useMemo(
-    () => uniqueInvestors.map((i) => ({ value: i.id, label: i.name })),
+    () => uniqueInvestors.map((i) => ({ value: i.key, label: i.name })),
     [uniqueInvestors],
   );
 
@@ -154,8 +161,14 @@ export function PayoutsClient({
   // ── Period + status + investor filter (Pass 2 — for table) ───────────────
   const filteredPays = useMemo(() => {
     let rows = [...periodPays];
-    if (filters.status   !== 'all') rows = rows.filter((p) => p.status     === filters.status);
-    if (filters.investor !== 'all') rows = rows.filter((p) => p.investorId === filters.investor);
+    if (filters.status !== 'all') rows = rows.filter((p) => p.status === filters.status);
+    if (filters.investor !== 'all') {
+      // filters.investor is the groupKey (name||contact) — match all records for this person
+      rows = rows.filter((p) => {
+        const key = `${p.investorName.trim()}||${(p.investorContact ?? '').trim()}`;
+        return key === filters.investor;
+      });
+    }
     return rows.sort((a, b) => b.year * 100 + b.month - (a.year * 100 + a.month));
   }, [periodPays, filters.status, filters.investor]);
 

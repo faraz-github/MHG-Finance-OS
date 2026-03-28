@@ -77,5 +77,5 @@ export default async function ReportsPage() {
     };
   });
 
-  return <ReportsClient reports={reports} properties={properties} />;
+  return <ReportsClient reports={reports} properties={properties} canDelete={session.role === 'SuperAdmin'} />;
 }
