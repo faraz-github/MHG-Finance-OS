@@ -2,16 +2,13 @@
 // =============================================================================
 // MehmanGhar Financial OS — Payouts Recalculate Route
 //
-// POST — updates amount_owed on all PENDING payout records by reading the
-//        corresponding Report's stored data JSON.
+// POST — updates amount_owed on all PENDING payout records.
 //
-// The Report.data JSON is the raw calcF() output stored at report creation
-// time. This route reads the investor_profit value from that stored output
-// (keyed by investor_id) and sets it as amount_owed on the pending payout.
+// Formula (matches Investors page + regenReports):
+//   amount_owed = report.data.invProfit × (investor.share_pct / 100)
 //
-// This does NOT call finance.ts — it reads pre-computed values already
-// stored in the reports table. The calculation was done when the report
-// was created via POST /api/reports.
+// report.data.invProfit = property-level investor pool after MHG commission.
+// investor.share_pct    = this investor's % share of that pool.
 //
 // SuperAdmin only.
 // =============================================================================
@@ -44,15 +41,15 @@ export async function POST(
   }
 
   try {
-    // Fetch all pending payouts (amount_paid IS NULL)
+    // ── 1. Load all pending payouts ─────────────────────────────────────────
     const pendingPayouts = await prisma.payout.findMany({
       where: { amount_paid: null },
       select: {
-        id: true,
+        id:          true,
         property_id: true,
         investor_id: true,
-        year: true,
-        month: true,
+        year:        true,
+        month:       true,
       },
     });
 
@@ -63,81 +60,69 @@ export async function POST(
       });
     }
 
-    // Fetch relevant reports (monthly, with property_id)
+    // ── 2. Load investors — need share_pct for each ─────────────────────────
+    const investorIds = [...new Set(pendingPayouts.map((p) => p.investor_id))];
+    const investors = await prisma.investor.findMany({
+      where: { id: { in: investorIds } },
+      select: { id: true, share_pct: true },
+    });
+    const investorMap = new Map<string, number>();
+    for (const inv of investors) {
+      investorMap.set(inv.id, Number(inv.share_pct));
+    }
+
+    // ── 3. Load monthly reports — need invProfit from data JSON ────────────
+    const propertyIds = [...new Set(pendingPayouts.map((p) => p.property_id))];
     const reports = await prisma.report.findMany({
       where: {
-        property_id: { not: null },
+        property_id: { in: propertyIds },
         period_type: "monthly",
-        month: { not: null },
+        month:       { not: null },
       },
       select: {
         property_id: true,
-        year: true,
-        month: true,
-        data: true,
+        year:        true,
+        month:       true,
+        data:        true,
       },
     });
 
-    // Build a lookup: "property_id:year:month" → report data
-    const reportMap = new Map<string, unknown>();
+    // Build lookup: "property_id:year:month" → invProfit
+    const invProfitMap = new Map<string, number>();
     for (const r of reports) {
-      if (r.property_id && r.month) {
-        reportMap.set(`${r.property_id}:${r.year}:${r.month}`, r.data);
-      }
+      if (!r.property_id || !r.month) continue;
+      const data = r.data as Record<string, unknown>;
+      const invProfit = typeof data.invProfit === "number" ? data.invProfit : 0;
+      invProfitMap.set(`${r.property_id}:${r.year}:${r.month}`, invProfit);
     }
 
+    // ── 4. Update each pending payout ───────────────────────────────────────
     let updatedCount = 0;
 
     for (const payout of pendingPayouts) {
-      const key = `${payout.property_id}:${payout.year}:${payout.month}`;
-      const reportData = reportMap.get(key);
-      if (!reportData || typeof reportData !== "object" || reportData === null) continue;
+      const sharePct   = investorMap.get(payout.investor_id) ?? 0;
+      const invProfit  = invProfitMap.get(
+        `${payout.property_id}:${payout.year}:${payout.month}`
+      ) ?? null;
 
-      // Report data shape from calcF(): may include investors array or
-      // investor_profits map. We look for common shapes used by the HTML.
-      // Shape 1: { investors: [{ id, profit }] }
-      // Shape 2: { investorProfits: { [investor_id]: number } }
-      const data = reportData as Record<string, unknown>;
+      // Skip if no report exists for this period or investor has no share_pct
+      if (invProfit === null || sharePct <= 0) continue;
 
-      let newAmountOwed: number | null = null;
-
-      if (Array.isArray(data.investors)) {
-        const match = (data.investors as Array<Record<string, unknown>>).find(
-          (inv) => inv.id === payout.investor_id || inv.investor_id === payout.investor_id
-        );
-        if (match && typeof match.profit === "number") {
-          newAmountOwed = match.profit;
-        } else if (match && typeof match.investor_profit === "number") {
-          newAmountOwed = match.investor_profit;
-        }
-      }
-
-      if (
-        newAmountOwed === null &&
-        typeof data.investorProfits === "object" &&
-        data.investorProfits !== null
-      ) {
-        const profits = data.investorProfits as Record<string, number>;
-        if (typeof profits[payout.investor_id] === "number") {
-          newAmountOwed = profits[payout.investor_id];
-        }
-      }
-
-      if (newAmountOwed === null) continue;
+      // Per-investor amount = property investor pool × their profit share %
+      const amountOwed = +(invProfit * (sharePct / 100)).toFixed(2);
 
       await prisma.payout.update({
         where: { id: payout.id },
-        data: { amount_owed: newAmountOwed },
+        data:  { amount_owed: amountOwed },
       });
       updatedCount++;
     }
 
     return NextResponse.json({
       updated: updatedCount,
-      message:
-        updatedCount > 0
-          ? `${updatedCount} pending payout(s) recalculated from stored report data.`
-          : "No matching report data found for pending payouts. Ensure reports have been generated first.",
+      message: updatedCount > 0
+        ? `${updatedCount} pending payout(s) recalculated.`
+        : "No matching report data found. Ensure reports exist for the relevant periods.",
     });
   } catch {
     return NextResponse.json({ error: "An unexpected error occurred." }, { status: 500 });

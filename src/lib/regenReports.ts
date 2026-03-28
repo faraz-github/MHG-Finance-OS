@@ -65,17 +65,46 @@ export async function regenReports(): Promise<RegenResult> {
   });
 
   const properties = await prisma.property.findMany({
-    select: { id: true, comm: true, capital: true },
+    select: { id: true, comm: true, broker_pct: true, broker_public: true },
+  });
+
+  // Load investors to compute capital base per property.
+  // Capital base = sum of investor.capital for investors linked to that property.
+  // This matches the report structure: total investment is the sum across all investors.
+  const investors = await prisma.investor.findMany({
+    select: { property_id: true, capital: true },
   });
 
   const existingReports = await prisma.report.findMany({
-    select: { id: true, property_id: true, month: true, year: true },
+    select: { id: true, property_id: true, month: true, year: true, data: true },
   });
 
   // ── 2. Build O(1) lookups ────────────────────────────────────────────────
-  const propMap = new Map<string, { comm: number; capital: number }>();
+  // Capital base per property = sum of linked investor capitals.
+  // If no investors are linked, capital = 0 → calcROI returns null → ROI shows N/A.
+  const investorCapitalMap = new Map<string, number>();
+  for (const inv of investors) {
+    const current = investorCapitalMap.get(inv.property_id) ?? 0;
+    investorCapitalMap.set(inv.property_id, current + Number(inv.capital));
+  }
+
+  const propMap = new Map<string, { comm: number; effectiveComm: number; mgComm: number; brokerComm: number; capital: number }>();
   for (const p of properties) {
-    propMap.set(p.id, { comm: Number(p.comm), capital: Number(p.capital) });
+    const comm      = Number(p.comm);
+    const brokerPct = Number(p.broker_pct) || 0;
+    const brokerPub = p.broker_public ?? false;
+    // effectiveComm is what gets passed to calcF — includes broker when broker_public
+    // When broker is private, MHG absorbs the broker cut internally; investors still
+    // see only MHG's comm% on investor-facing pages.
+    const effectiveComm = brokerPub ? comm + brokerPct : comm;
+    propMap.set(p.id, {
+      comm,
+      effectiveComm,
+      // These are stored in the report for the commission breakdown display
+      mgComm:     comm,
+      brokerComm: brokerPub ? brokerPct : 0,
+      capital: investorCapitalMap.get(p.id) ?? 0,
+    });
   }
 
   // Existing report id lookup: "pid_month_year" → report.id
@@ -245,7 +274,15 @@ export async function regenReports(): Promise<RegenResult> {
     const channels = rv?.channels ?? {};
     const expCats = ex?.cats ?? {};
 
-    const f = calcF(rev, exp, prop.comm, nights, days, prop.capital, roomRev);
+    const f = calcF(rev, exp, prop.effectiveComm, nights, days, prop.capital, roomRev);
+
+    // mgComm = MHG-only portion; brokerComm = broker portion (0 when private)
+    // Both derived from the total commission using the stored percentages.
+    const totalCommPct = prop.effectiveComm;
+    const mgCommAmt    = totalCommPct > 0
+      ? Math.round(f.commission * (prop.mgComm / totalCommPct))
+      : f.commission;
+    const brokerCommAmt = f.commission - mgCommAmt;
 
     // Preserve existing ID so payout.report_id links remain valid
     const existingId = existingRepMap.get(key);
@@ -263,7 +300,9 @@ export async function regenReports(): Promise<RegenResult> {
         roomRev: f.roomRev,
         exp: f.exp,
         opProfit: f.opProfit,
-        commission: f.commission,
+        commission: f.commission,   // total (MHG + broker when public)
+        mgComm:     mgCommAmt,      // MHG portion only
+        brokerComm: brokerCommAmt,  // broker portion (0 when private)
         invProfit: f.invProfit,
         nights,
         days,
@@ -282,11 +321,14 @@ export async function regenReports(): Promise<RegenResult> {
   }
 
   // ── 7. Identify stale auto-generated reports to delete ───────────────────
-  // Only remove reports that were auto-generated AND have no current data.
-  // Manually-created reports (without _autoGen flag in data) are never deleted.
+  // Only remove reports flagged with _autoGen:true that have no current data.
+  // Manually-created reports (no _autoGen flag) are never deleted.
   const staleIds: string[] = [];
   for (const r of existingReports) {
     if (!r.property_id || !r.month) continue;
+    // Skip manually-created reports — only auto-generated ones are managed here
+    const data = r.data as Record<string, unknown> | null;
+    if (!data?._autoGen) continue;
     const key = `${r.property_id}_${r.month}_${r.year}`;
     if (!validKeys.has(key)) {
       staleIds.push(r.id);

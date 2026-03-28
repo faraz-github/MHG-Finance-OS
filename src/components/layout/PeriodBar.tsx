@@ -20,7 +20,7 @@ import styles from './PeriodBar.module.css';
 // Pages that hide the period bar entirely
 // ---------------------------------------------------------------------------
 
-const HIDE_ON: string[] = ['/monthlyentry', '/users'];
+const HIDE_ON: string[] = ['/monthlyentry', '/users', '/utils'];
 
 // ---------------------------------------------------------------------------
 // Month / quarter name arrays — verbatim from the HTML

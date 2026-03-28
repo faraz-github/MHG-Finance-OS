@@ -16,10 +16,11 @@
 // Table limit: HTML shows 50 rows max then "Showing X of Y". We use
 // Pagination component for a cleaner UX with the same PAGE_SIZE=50.
 
-import { useState, useMemo, useTransition } from 'react';
+import { useState, useMemo, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePeriod } from '@/hooks/usePeriod';
 import { usePageFilters } from '@/hooks/usePageFilters';
+import { downloadCsv } from '@/lib/csvDownload';
 import { PageFilterBar } from '@/components/layout/PageFilterBar';
 import type { FilterOption } from '@/components/layout/PageFilterBar';
 import { matchesPeriod } from '@/lib/period';
@@ -30,7 +31,16 @@ import { useToast } from '@/components/ui/Toast';
 import { DailyExpModal } from './DailyExpModal';
 import type { DailyExpFormValues, DailyExpSavePayload } from './DailyExpModal';
 import { DAILY_EXP_CATS } from './DailyExpModal';
-import type { SerializableProperty } from '../properties/page';
+
+// ---------------------------------------------------------------------------
+// Minimal property type — daily expenses only needs id, name, city
+// ---------------------------------------------------------------------------
+
+export interface DailyExpProperty {
+  id:   string;
+  name: string;
+  city: string;
+}
 
 // ---------------------------------------------------------------------------
 // Constants — verbatim from HTML (_dePage = 50)
@@ -75,7 +85,7 @@ const fI  = (n: number) => {
 
 interface DailyExpClientProps {
   expenses: SerializableDailyExp[];
-  properties: SerializableProperty[];
+  properties: DailyExpProperty[];
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
@@ -139,6 +149,8 @@ export function DailyExpClient({
       periodState.cDay, periodState.cWeek]);
 
   // ── KPI derivation ────────────────────────────────────────────────────────
+  useEffect(() => { setPage(1); }, [filtered.length]);
+
   const total    = filtered.reduce((s, e) => s + e.amount, 0);
   const catTotals: Record<string, number> = {};
   filtered.forEach((e) => { catTotals[e.category] = (catTotals[e.category] ?? 0) + e.amount; });
@@ -239,11 +251,35 @@ export function DailyExpClient({
         <div className="stl" style={{ marginBottom: 0 }}>
           <div className="d" />Daily Expenses
         </div>
-        {canCreate && (
-          <button className="btn btn-or btn-sm" onClick={handleAdd}>
-            + Add Expense
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button className="btn btn-g btn-sm" onClick={() => {
+            downloadCsv(
+              ['Date', 'Property', 'Category', 'Amount', 'Notes'],
+              filtered.map((e) => [
+                e.date, propMap[e.pid]?.name ?? '',
+                EXP_CATS_DAILY[e.category] ?? e.category,
+                String(e.amount), e.note || '',
+              ]),
+              `mg-daily-expenses-${new Date().toISOString().slice(0, 10)}.csv`,
+            );
+          }}>↓ CSV</button>
+          <button className="btn btn-g btn-sm" onClick={async () => {
+            const { exportTablePdf } = await import('@/components/layout/exportPdf');
+            await exportTablePdf({
+              title: 'Daily Expenses',
+              headers: ['Date', 'Property', 'Category', 'Amount', 'Notes'],
+              rows: filtered.map((e) => [
+                e.date, propMap[e.pid]?.name ?? '—',
+                EXP_CATS_DAILY[e.category] ?? e.category,
+                'Rs. ' + e.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 }), e.note || '—',
+              ]),
+              filename: `mg-daily-expenses-${new Date().toISOString().slice(0, 10)}.pdf`,
+            });
+          }}>↓ PDF</button>
+          {canCreate && (
+            <button className="btn btn-or btn-sm" onClick={handleAdd}>+ Add Expense</button>
+          )}
+        </div>
       </div>
 
       <PageFilterBar

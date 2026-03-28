@@ -1,33 +1,6 @@
 // src/app/(dashboard)/bookings/page.tsx
-//
 // Bookings page — Server Component shell.
 // Admin + SuperAdmin access (enforced by proxy.ts + permissions.ts).
-//
-// HTML source: <div class="page" id="page-bookings"> + rndBookings()
-//              + saveBooking() + editBooking() + delBooking()
-//
-// ─── ARCHITECTURAL NOTE: Period filter ───────────────────────────────────
-// Same decision as Daily Expenses (Run 13): client-side filtering via
-// matchesPeriod() on check_in date using Zustand period state.
-// URL-sync is deferred to v2. See dailyexp/page.tsx for full rationale.
-//
-// ─── SCHEMA GAPS (document for evaluation migration plan) ────────────────
-// The Booking model is missing fields the HTML stores:
-//
-//   room_amount   Decimal   — room-only revenue (vs total with services/food)
-//   booking_type  String    — 'stay' | 'event'; default 'stay'
-//   event_type    String?   — 'Birthday', 'Party', etc.
-//   event_guests  Int?
-//   food_cost     Decimal?
-//   services      Json      — [{name, amount}] add-on services
-//   rating        Int?      — 1-5 guest rating
-//
-// Until migrated:
-//   - booking_type defaults to 'stay' in serialisation
-//   - room_amount equals revenue (no breakdown)
-//   - services/food_cost/rating round-tripped through notes field until
-//     migration adds dedicated columns
-// ─────────────────────────────────────────────────────────────────────────
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -35,8 +8,7 @@ import { verifyToken } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getRolePermissions } from '@/lib/permissions';
 import { BookingsClient } from './BookingsClient';
-import type { SerializableBooking } from './BookingsClient';
-import type { SerializableProperty } from '../properties/page';
+import type { SerializableBooking, BookingProperty } from './BookingsClient';
 
 export default async function BookingsPage() {
   // ── Session + permissions ─────────────────────────────────────────────────
@@ -58,18 +30,20 @@ export default async function BookingsPage() {
   // ── Fetch bookings joined with property + guest ───────────────────────────
   const rawBookings = await prisma.booking.findMany({
     select: {
-      id:          true,
-      property_id: true,
-      guest_id:    true,
-      check_in:    true,
-      check_out:   true,
-      nights:      true,
-      revenue:     true,
-      platform:    true,
-      status:      true,
-      notes:       true,
-      property:    { select: { name: true } },
-      guest:       { select: { name: true } },
+      id:           true,
+      property_id:  true,
+      guest_id:     true,
+      check_in:     true,
+      check_out:    true,
+      nights:       true,
+      revenue:      true,
+      room_amount:  true,
+      platform:     true,
+      status:       true,
+      notes:        true,
+      booking_type: true,
+      property:     { select: { name: true } },
+      guest:        { select: { name: true } },
     },
     orderBy: { check_in: 'desc' },
   });
@@ -84,30 +58,22 @@ export default async function BookingsPage() {
     checkOut:     b.check_out.toISOString().split('T')[0],
     nights:       b.nights,
     revenue:      Number(b.revenue),
+    roomAmount:   b.room_amount ? Number(b.room_amount) : Number(b.revenue),
     platform:     b.platform ?? 'Direct',
     status:       b.status,
     notes:        b.notes,
-    // booking_type not yet in schema — defaults to 'stay'
-    bookingType:  (b as Record<string, unknown>).booking_type as string ?? 'stay',
+    bookingType:  (b.booking_type ?? 'stay') as 'stay' | 'event',
   }));
 
-  // ── Fetch properties ──────────────────────────────────────────────────────
+  // ── Fetch properties — only id, name, city needed for filter + modal ────────
   const rawProps = await prisma.property.findMany({
-    select: { id: true, name: true, address: true, city: true, state: true, comm: true, capital: true, type: true, rooms: true, assets: true },
+    select: { id: true, name: true, city: true },
     orderBy: { name: 'asc' },
   });
-
-  const properties: SerializableProperty[] = rawProps.map((p) => ({
-    id:      p.id,
-    name:    p.name,
-    city:    p.city ?? '',
-    state:   p.state ?? '',
-    comm:    Number(p.comm) || 25,
-    capital: Number(p.capital) || 0,
-    address: p.address,
-    type:    p.type ?? '',
-    rooms:   Number(p.rooms) || 0,
-    assets:  (p.assets as SerializableProperty['assets']) ?? [],
+  const properties: BookingProperty[] = rawProps.map((p) => ({
+    id:   p.id,
+    name: p.name,
+    city: p.city ?? '',
   }));
 
   // ── Fetch guest names for autocomplete datalist ───────────────────────────

@@ -280,40 +280,8 @@ export async function POST(
   }
 
   // ---------------------------------------------------------------------------
-  // Expenses
+  // Expenses — model removed in migration remove_expense_model; skip silently
   // ---------------------------------------------------------------------------
-  if (Array.isArray(body.expenses)) {
-    try {
-      const rows = (body.expenses as Array<Record<string, unknown>>).filter(
-        (r) => typeof r.id === "string"
-      );
-      for (const r of rows) {
-        await prisma.expense.upsert({
-          where: { id: String(r.id) },
-          create: {
-            id: String(r.id),
-            property_id: String(r.property_id),
-            year: Number(r.year),
-            month: Number(r.month),
-            category: String(r.category ?? ""),
-            amount: Number(r.amount) || 0,
-            notes: r.notes ? String(r.notes) : null,
-          },
-          update: {
-            amount: Number(r.amount) || 0,
-            notes: r.notes ? String(r.notes) : null,
-          },
-        });
-      }
-      results.push({ table: "expenses", processed: rows.length });
-    } catch (err) {
-      results.push({
-        table: "expenses",
-        processed: 0,
-        error: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // Payouts

@@ -17,6 +17,7 @@ import { useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { usePeriod } from '@/hooks/usePeriod';
 import { usePageFilters } from '@/hooks/usePageFilters';
+import { downloadCsv } from '@/lib/csvDownload';
 import { PageFilterBar } from '@/components/layout/PageFilterBar';
 import type { FilterOption } from '@/components/layout/PageFilterBar';
 import { matchesPeriod } from '@/lib/period';
@@ -153,7 +154,8 @@ export function CrmClient({ guests, bookings }: CrmClientProps) {
   const repeat      = activeGuests.filter((g) => (guestPeriodMap[g.id]?.stays ?? 0) > 1).length;
   const returnRate  = tot > 0 ? +((repeat / tot) * 100).toFixed(0) : 0;
   const totalSpend  = activeGuests.reduce((s, g) => s + (guestPeriodMap[g.id]?.spend ?? 0), 0);
-  const avgCLV      = tot > 0 ? +(totalSpend / tot).toFixed(2) : 0;
+  // avgCLV = average all-time spend per active guest (true lifetime value, not period spend)
+  const avgCLV      = tot > 0 ? +(activeGuests.reduce((s, g) => s + g.allTimeSpend, 0) / tot).toFixed(2) : 0;
   const allRatings  = activeGuests
     .map((g) => g.avgRating)
     .filter((r): r is number => r !== null && r > 0);
@@ -230,6 +232,35 @@ export function CrmClient({ guests, bookings }: CrmClientProps) {
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="page-hdr">
         <div className="stl" style={{ marginBottom: 0 }}><div className="d" />Guest Intelligence</div>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button className="btn btn-g btn-sm" onClick={() => {
+            downloadCsv(
+              ['Guest', 'Phone', 'Email', 'Tags', 'Stays (all-time)', 'Nights (all-time)', 'Period Spend', 'Lifetime CLV', 'Rating', 'Last Visit'],
+              filteredGuests.map(({ g, tags, periodSpend }) => [
+                g.name, g.phone || '', g.email || '', tags.join(', '),
+                String(g.allTimeStays), String(g.allTimeNights),
+                String(periodSpend), String(g.allTimeSpend),
+                g.avgRating ? String(g.avgRating) : '', g.lastVisit || '',
+              ]),
+              `mg-guests-${new Date().toISOString().slice(0, 10)}.csv`,
+            );
+          }}>↓ CSV</button>
+          <button className="btn btn-g btn-sm" onClick={async () => {
+            const { exportTablePdf } = await import('@/components/layout/exportPdf');
+            await exportTablePdf({
+              title: 'Guest CRM',
+              headers: ['Guest', 'Phone', 'Tags', 'Stays', 'Nights', 'Period Spend', 'Lifetime CLV', 'Rating', 'Last Visit'],
+              rows: filteredGuests.map(({ g, tags, periodSpend }) => [
+                g.name, g.phone || '—', tags.join(', ') || '—',
+                String(g.allTimeStays), String(g.allTimeNights),
+                'Rs. ' + periodSpend.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+                'Rs. ' + g.allTimeSpend.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+                g.avgRating ? String(g.avgRating) : '—', g.lastVisit || '—',
+              ]),
+              filename: `mg-guests-${new Date().toISOString().slice(0, 10)}.pdf`,
+            });
+          }}>↓ PDF</button>
+        </div>
       </div>
 
       <PageFilterBar
@@ -243,7 +274,7 @@ export function CrmClient({ guests, bookings }: CrmClientProps) {
       <MetricCardGrid>
         <MetricCard label="Total Guests" value={String(tot)}          sub="Active this period"          iconText="👤" iconVariant="b" />
         <MetricCard label="Return Rate"  value={returnRate + '%'}     sub={returnRate >= 30 ? '✓ Good loyalty' : '⚠ Below 30% target'} iconText="↩" iconVariant={returnRate >= 30 ? 'g' : 'go'} />
-        <MetricCard label="Avg CLV"      value={fI(avgCLV)}           sub="Customer lifetime value"    iconText="₹" iconVariant="o" />
+        <MetricCard label="Avg CLV"      value={fIN(avgCLV)}           sub="Customer lifetime value"    iconText="₹" iconVariant="o" />
         <MetricCard label="Avg Rating"   value={avgRating > 0 ? avgRating + ' ⭐' : 'N/A'} sub="Guest satisfaction" iconText="⭐" iconVariant="b" />
         <MetricCard label="Avg Stay"     value={avgStay + ' nights'}  sub="Nights per visit"           iconText="🌙" iconVariant="b" />
       </MetricCardGrid>

@@ -9,7 +9,7 @@
 import { useState, useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import styles from '@/components/ui/ui.module.css';
-import type { SerializableProperty } from '../properties/page';
+import type { UtilsProperty } from './UtilsClient';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,7 +40,7 @@ interface UtilModalProps {
   onClose: () => void;
   editId: string | null;
   initialValues?: Partial<UtilFormValues>;
-  properties: SerializableProperty[];
+  properties: UtilsProperty[];
   onSave: (payload: UtilFormValues, editId: string | null) => Promise<void>;
   isSaving: boolean;
 }

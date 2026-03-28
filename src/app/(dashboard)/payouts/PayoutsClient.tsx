@@ -18,10 +18,11 @@
 //   HTML.amount    → amount_owed (Decimal)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useMemo, useTransition } from 'react';
+import { useState, useMemo, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePeriod } from '@/hooks/usePeriod';
 import { usePageFilters } from '@/hooks/usePageFilters';
+import { downloadCsv } from '@/lib/csvDownload';
 import { PageFilterBar } from '@/components/layout/PageFilterBar';
 import type { FilterOption } from '@/components/layout/PageFilterBar';
 import { getFYMonths } from '@/lib/period';
@@ -100,8 +101,6 @@ function filterByPeriod(
 
 interface PayoutsClientProps {
   payouts: SerializablePayout[];
-  /** All-time pending count (for Sidebar badge — passed as a prop) */
-  totalPendingCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +109,6 @@ interface PayoutsClientProps {
 
 export function PayoutsClient({
   payouts,
-  totalPendingCount: initialPendingCount,
 }: PayoutsClientProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -160,6 +158,9 @@ export function PayoutsClient({
     if (filters.investor !== 'all') rows = rows.filter((p) => p.investorId === filters.investor);
     return rows.sort((a, b) => b.year * 100 + b.month - (a.year * 100 + a.month));
   }, [periodPays, filters.status, filters.investor]);
+
+  // Reset to page 1 whenever filtered results change
+  useEffect(() => { setPage(1); }, [filteredPays.length]);
 
   // ── KPI derivations (always from periodPays) ──────────────────────────────
   const totalPayable    = periodPays.reduce((s, p) => s + p.amountOwed, 0);
@@ -222,7 +223,7 @@ export function PayoutsClient({
     try {
       const res = await fetch(`/api/payouts/${pay.id}`, { method: 'DELETE' });
       if (!res.ok) { const err = await res.json().catch(() => ({})); toast(err.error ?? 'Failed to delete', 'er'); return; }
-      toast('Payout deleted', 'er');
+      toast('✓ Payout deleted', 'ok');
       startTransition(() => router.refresh());
     } catch { toast('Network error', 'er'); }
   }
@@ -230,21 +231,21 @@ export function PayoutsClient({
   async function handleSyncFromReports() {
     try {
       const res = await fetch('/api/payouts/sync', { method: 'POST' });
-      if (!res.ok) { toast('Sync failed — API not yet wired (Phase 6)', 'er'); return; }
+      if (!res.ok) { toast('Sync failed — please try again', 'er'); return; }
       const data = await res.json();
       toast(`✓ ${data.count ?? 0} payouts synced from reports`, 'ok');
       startTransition(() => router.refresh());
-    } catch { toast('Sync API not yet available (Phase 6)', 'in'); }
+    } catch { toast('Sync failed — network error', 'er'); }
   }
 
   async function handleRecalcPending() {
     try {
       const res = await fetch('/api/payouts/recalc', { method: 'POST' });
-      if (!res.ok) { toast('Recalc failed — API not yet wired (Phase 6)', 'er'); return; }
+      if (!res.ok) { toast('Recalculate failed — please try again', 'er'); return; }
       const data = await res.json();
       toast(`✓ ${data.updated ?? 0} pending payouts recalculated`, 'ok');
       startTransition(() => router.refresh());
-    } catch { toast('Recalc API not yet available (Phase 6)', 'in'); }
+    } catch { toast('Recalculate failed — network error', 'er'); }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -259,7 +260,7 @@ export function PayoutsClient({
           {(allTimePending > 0 || payouts.length > 0) && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
               <span style={{ background: allTimePending > 0 ? 'var(--rdp)' : 'var(--grp)', color: allTimePending > 0 ? 'var(--rd)' : 'var(--gr)', display: 'inline-flex', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 700 }}>
-                {allTimePending > 0 ? `${allTimePending} Pending (all-time) — ${fI(allTimePendingAmt)}` : 'All Paid ✓'}
+                {allTimePending > 0 ? `${allTimePending} Pending (all-time) — ${fIN(allTimePendingAmt)}` : 'All Paid ✓'}
               </span>
               {pendingCount > 0 && pendingCount !== allTimePending && (
                 <span style={{ fontSize: '10.5px', color: 'var(--t3)' }}>{pendingCount} pending in this period</span>
@@ -268,7 +269,33 @@ export function PayoutsClient({
           )}
           <button className="btn btn-or btn-sm" onClick={handleSyncFromReports}>↻ Sync from Reports</button>
           <button className="btn btn-g btn-sm" onClick={handleRecalcPending}>♻ Recalculate Pending</button>
-          <button className="btn btn-g btn-sm" onClick={() => toast('CSV export — Phase 6', 'in')}>Export CSV</button>
+          <button className="btn btn-g btn-sm" onClick={() => {
+            downloadCsv(
+              ['Period', 'Investor', 'Property', 'City', 'Amount Owed', 'Status', 'Paid On', 'Reference', 'Notes'],
+              filteredPays.map((p) => [
+                `${MN[p.month] ?? '?'} ${p.year}`, p.investorName, p.propertyName,
+                p.propertyCity || '', String(p.amountOwed),
+                p.status === 'paid' ? 'Paid' : 'Pending',
+                p.paidOn ?? '', p.reference ?? '', p.notes ?? '',
+              ]),
+              `mg-payouts-${new Date().toISOString().slice(0, 10)}.csv`,
+            );
+          }}>↓ CSV</button>
+          <button className="btn btn-or btn-sm" onClick={async () => {
+            const { exportTablePdf } = await import('@/components/layout/exportPdf');
+            await exportTablePdf({
+              title: 'Investor Payout Ledger',
+              headers: ['Period', 'Investor', 'Property', 'Amount Owed', 'Status', 'Paid On', 'Reference', 'Notes'],
+              rows: filteredPays.map((p) => [
+                `${MN[p.month] ?? '?'} ${p.year}`, p.investorName,
+                p.propertyCity ? `${p.propertyName}, ${p.propertyCity}` : p.propertyName,
+                'Rs. ' + p.amountOwed.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+                p.status === 'paid' ? 'Paid' : 'Pending',
+                p.paidOn ?? '—', p.reference ?? '—', p.notes ?? '—',
+              ]),
+              filename: `mg-payouts-${new Date().toISOString().slice(0, 10)}.pdf`,
+            });
+          }}>↓ PDF</button>
         </div>
       </div>
 

@@ -29,7 +29,18 @@ import type { RepRow, PeriodState } from '@/lib/period';
 import { useToast } from '@/components/ui/Toast';
 import styles from '@/components/ui/ui.module.css';
 import type { SerializableReport } from '../dashboard/page';
-import type { SerializableProperty } from '../properties/page';
+
+// ---------------------------------------------------------------------------
+// Minimal property type — insights needs id, name, city, comm, capital
+// ---------------------------------------------------------------------------
+
+export interface InsightsProperty {
+  id:      string;
+  name:    string;
+  city:    string;
+  comm:    number;
+  capital: number;
+}
 
 const InsightCharts = dynamic(
   () => import('./InsightCharts').then((m) => ({ default: m.InsightCharts })),
@@ -47,6 +58,7 @@ function fI(n: number): string {
   if (v >= 1000)   return (n < 0 ? '-' : '') + '₹' + (v / 1000).toFixed(2) + 'K';
   return (n < 0 ? '-' : '') + '₹' + v.toFixed(2);
 }
+const fIN = (n: number) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const MS = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -123,7 +135,7 @@ type AggResult = NonNullable<ReturnType<typeof withD>>;
 function genInsights(
   rs: RepRow[],
   a: AggResult,
-  propMap: Record<string, SerializableProperty>,
+  propMap: Record<string, InsightsProperty>,
 ): InsightItem[] {
   const ins: InsightItem[] = [];
 
@@ -188,7 +200,7 @@ const BLANK_TARGETS: Targets = { revenue: 0, occupancy: 0, roi: 0, expense_limit
 
 interface InsightsClientProps {
   reports: SerializableReport[];
-  properties: SerializableProperty[];
+  properties: InsightsProperty[];
   /** Server-fetched targets for current month/year. Empty object if none. */
   initialTargets: Partial<Targets>;
 }
@@ -359,7 +371,7 @@ export function InsightsClient({
                      targets.roi > 0 || targets.expense_limit > 0;
 
   // ── Empty state ───────────────────────────────────────────────────────────
-  if (!agg || !agg.rev) {
+  if (!agg || (!agg.rev && !agg.exp)) {
     return (
       <>
         <PageFilterBar filters={filters} config={{ city: true, property: true }} cities={cityOptions} properties={propOptions} />
@@ -464,7 +476,7 @@ export function InsightsClient({
               if (targets.revenue > 0) {
                 const met = pa.rev >= targets.revenue;
                 statuses.push({
-                  label: 'Revenue', val: fI(pa.rev), target: fI(targets.revenue),
+                  label: 'Revenue', val: fIN(pa.rev), target: fIN(targets.revenue),
                   pct: Math.min(100, Math.round(pa.rev / targets.revenue * 100)), met,
                 });
               }
@@ -478,14 +490,14 @@ export function InsightsClient({
               if (targets.roi > 0 && pa._hasCapital) {
                 const met = (pa.roi ?? 0) >= targets.roi;
                 statuses.push({
-                  label: 'ROI', val: pa.roi !== null ? (pa.roi ?? 0).toFixed(2) + '%' : 'N/A', target: targets.roi + '%',
+                  label: 'ROI', val: pa._hasCapital ? (pa.roi ?? 0).toFixed(2) + '%' : 'N/A', target: targets.roi + '%',
                   pct: Math.min(100, Math.round(Math.max(0, pa.roi ?? 0) / targets.roi * 100)), met,
                 });
               }
               if (targets.expense_limit > 0) {
                 const met = pa.exp <= targets.expense_limit;
                 statuses.push({
-                  label: 'Expenses', val: fI(pa.exp), target: '≤' + fI(targets.expense_limit),
+                  label: 'Expenses', val: fIN(pa.exp), target: '≤' + fIN(targets.expense_limit),
                   pct: Math.min(100, Math.round(pa.exp / targets.expense_limit * 100)), met,
                 });
               }

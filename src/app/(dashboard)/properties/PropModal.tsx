@@ -23,7 +23,6 @@ export interface PropertyFormValues {
   comm:         string;
   commCustom:   string;
   address:      string;
-  capital:      string;
   assets:       AssetRow[];
   broker_name:  string;
   broker_pct:   string;
@@ -36,7 +35,6 @@ export interface PropertySavePayload {
   state:         string;
   comm:          number;
   address:       string;
-  capital:       number;
   assets:        Array<{ name: string; amount: number; type: string }>;
   broker_name:   string;
   broker_pct:    number;
@@ -83,7 +81,7 @@ const STATES = Object.keys(STATE_CITIES).sort();
 
 const BLANK: PropertyFormValues = {
   name: '', city: '', state: '', comm: '25', commCustom: '',
-  address: '', capital: '', assets: [],
+  address: '', assets: [],
   broker_name: '', broker_pct: '0', broker_public: false,
 };
 
@@ -145,7 +143,6 @@ export function PropModal({ isOpen, onClose, editId, initialValues, onSave, isSa
       state:         form.state,
       comm:          resolvedComm,
       address:       form.address.trim(),
-      capital:       parseFloat(form.capital) || 0,
       assets:        form.assets.filter((a) => a.name && a.amount > 0).map(({ name, amount, type }) => ({ name, amount, type })),
       broker_name:   form.broker_name.trim(),
       broker_pct:    brokerPct,
@@ -219,15 +216,6 @@ export function PropModal({ isOpen, onClose, editId, initialValues, onSave, isSa
       <div className={styles.fl}>
         <label>Address</label>
         <input className={styles.fi} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Full address" />
-      </div>
-
-      {/* Capital Invested */}
-      <div style={{ border: '1.5px solid var(--bdr)', borderRadius: '10px', padding: '12px', marginBottom: '12px', background: 'var(--bg)' }}>
-        <div className={styles.fl} style={{ marginBottom: '8px' }}>
-          <label style={{ fontWeight: 700, fontSize: '12.5px' }}>💰 Capital Invested (₹)</label>
-          <input className={styles.fi} type="number" value={form.capital} onChange={(e) => set('capital', e.target.value)} placeholder="e.g. 1000000" style={{ marginTop: '4px' }} />
-        </div>
-        <div style={{ fontSize: '10px', color: 'var(--t3)' }}>Used for ROI calculation. This is the actual money invested.</div>
       </div>
 
       {/* Broker / Co-Agent */}

@@ -1,14 +1,16 @@
 'use client';
 // src/app/(dashboard)/properties/PropertiesClient.tsx
 
-import { useState, useMemo, useTransition } from 'react';
+import { useState, useMemo, useCallback, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePeriod } from '@/hooks/usePeriod';
 import { usePageFilters } from '@/hooks/usePageFilters';
+import { downloadCsv } from '@/lib/csvDownload';
 import { PageFilterBar } from '@/components/layout/PageFilterBar';
 import type { FilterOption } from '@/components/layout/PageFilterBar';
 import { aggReps, withD } from '@/lib/period';
 import type { RepRow } from '@/lib/period';
+import { calcCommission } from '@/lib/finance';
 import { Pagination } from '@/components/ui/Pagination';
 import { DetailPanel } from '@/components/ui/DetailPanel';
 import { useToast } from '@/components/ui/Toast';
@@ -66,7 +68,7 @@ export function PropertiesClient({
 }: PropertiesClientProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const [page,        setPage]        = useState(1);
   const [modalOpen,   setModalOpen]   = useState(false);
@@ -85,10 +87,12 @@ export function PropertiesClient({
     [initialProperties],
   );
 
-  const propById = (pid: string) =>
-    propMap[pid]
+  const propById = useCallback(
+    (pid: string) => propMap[pid]
       ? { id: pid, city: propMap[pid].city, comm: propMap[pid].effectiveComm }
-      : null;
+      : null,
+    [propMap],
+  );
 
   const allReps = reports as RepRow[];
 
@@ -124,11 +128,14 @@ export function PropertiesClient({
   const filteredReps = useMemo(
     () => getFilteredReps(allReps, propById, pageFilterState),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allReps, JSON.stringify(propMap), pageFilterState,
+    [allReps, propById, pageFilterState,
      periodState.cPType, periodState.cM, periodState.cY,
      periodState.cQ, periodState.cFY, periodState.cDateFrom, periodState.cDateTo,
      periodState.cDay, periodState.cWeek],
   );
+
+  // Reset to page 1 whenever filtered results change
+  useEffect(() => { setPage(1); }, [filteredReps]);
 
   const propAggMap = useMemo(() => {
     const m: Record<string, ReturnType<typeof withD>> = {};
@@ -178,7 +185,6 @@ export function PropertiesClient({
       comm:          stdComms.includes(commStr) ? commStr : 'custom',
       commCustom:    stdComms.includes(commStr) ? '' : commStr,
       address:       p.address ?? '',
-      capital:       p.capital ? String(p.capital) : '',
       assets:        (p.assets ?? []).map((a, i) => ({ ...a, id: i + 1, type: a.type as 'refundable' | 'recoverable' })),
       broker_name:   p.broker_name,
       broker_pct:    String(p.broker_pct),
@@ -214,7 +220,7 @@ export function PropertiesClient({
 
   async function handleDelete(p: SerializableProperty) {
     if (!window.confirm(
-      `Delete "${p.name}" and ALL linked data (reports, bookings, expenses, payouts, utilities)?`,
+      `Delete "${p.name}"?\n\nThis will fail if the property has linked bookings, expenses, investors, or payouts. Remove those first.`,
     )) return;
     try {
       const res = await fetch(`/api/properties/${p.id}`, { method: 'DELETE' });
@@ -252,9 +258,6 @@ export function PropertiesClient({
       .sort((a, b) => b.year * 100 + b.month - (a.year * 100 + a.month));
   }, [panelProp, allReps]);
 
-  // Suppress unused variable warning
-  void isPending;
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -281,6 +284,41 @@ export function PropertiesClient({
             </div>
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
+            <button className="btn btn-g btn-sm" onClick={() => {
+              downloadCsv(
+                ['Property', 'City', 'Comm%', 'Revenue', 'Investor Net', 'Commission', 'Occupancy', 'ROI'],
+                visibleProperties.map((p) => {
+                  const lR = propAggMap[p.id];
+                  return [
+                    p.name, p.city || '', `${p.effectiveComm}%`,
+                    lR ? String(lR.rev) : '', lR ? String(lR.invProfit) : '',
+                    lR ? String(lR.commission) : '',
+                    lR ? `${(lR.occ ?? 0).toFixed(1)}%` : '',
+                    lR?.roi !== null && lR?.roi !== undefined ? `${lR.roi.toFixed(2)}%` : 'N/A',
+                  ];
+                }),
+                `mg-properties-${new Date().toISOString().slice(0, 10)}.csv`,
+              );
+            }}>↓ CSV</button>
+            <button className="btn btn-g btn-sm" onClick={async () => {
+              const { exportTablePdf } = await import('@/components/layout/exportPdf');
+              await exportTablePdf({
+                title: 'Properties',
+                headers: ['Property', 'City', 'Comm%', 'Revenue', 'Investor Net', 'Commission', 'Occupancy', 'ROI'],
+                rows: visibleProperties.map((p) => {
+                  const lR = propAggMap[p.id];
+                  return [
+                    p.name, p.city || '', `${p.effectiveComm}%`,
+                    lR ? 'Rs. ' + lR.rev.toLocaleString('en-IN') : '—',
+                    lR ? 'Rs. ' + lR.invProfit.toLocaleString('en-IN') : '—',
+                    lR ? 'Rs. ' + lR.commission.toLocaleString('en-IN') : '—',
+                    lR ? `${(lR.occ ?? 0).toFixed(1)}%` : '—',
+                    lR?.roi !== null && lR?.roi !== undefined ? `${lR.roi.toFixed(2)}%` : 'N/A',
+                  ];
+                }),
+                filename: `mg-properties-${new Date().toISOString().slice(0, 10)}.pdf`,
+              });
+            }}>↓ PDF</button>
             {canCreate && (
               <button className="btn btn-or btn-sm" onClick={handleAdd}>
                 + Add Property
@@ -339,25 +377,20 @@ export function PropertiesClient({
                         {/* City */}
                         <td>{p.city || '—'}</td>
 
-                        {/* Comm% — shows effectiveComm when broker is public */}
+                        {/* Comm% — shows effectiveComm; broker detail kept private in table */}
                         <td>
                           <span className="pill o">{p.effectiveComm}%</span>
-                          {hasBroker && (
-                            <div style={{ fontSize: '10px', color: 'var(--t3)', marginTop: '2px' }}>
-                              +{p.broker_pct}% {p.broker_name}
-                            </div>
-                          )}
                         </td>
 
                         {/* Revenue */}
                         <td>
-                          {lR ? fI(lR.rev) : <span style={{ color: 'var(--t3)' }}>—</span>}
+                          {lR ? fF(lR.rev) : <span style={{ color: 'var(--t3)' }}>—</span>}
                         </td>
 
                         {/* Investor Net */}
                         <td>
                           {lR
-                            ? <span style={{ color: 'var(--gr)', fontWeight: 700 }}>{fI(lR.invProfit)}</span>
+                            ? <span style={{ color: 'var(--gr)', fontWeight: 700 }}>{fF(lR.invProfit)}</span>
                             : <span style={{ color: 'var(--t3)' }}>—</span>}
                         </td>
 
@@ -365,7 +398,7 @@ export function PropertiesClient({
                         <td>
                           {lR ? (
                             <div>
-                              <span style={{ color: 'var(--or)', fontWeight: 700 }}>{fI(lR.commission)}</span>
+                              <span style={{ color: 'var(--or)', fontWeight: 700 }}>{fF(lR.commission)}</span>
                               {hasBroker && (
                                 <div style={{ fontSize: '10px', color: 'var(--t3)', marginTop: '2px' }}>
                                   incl. broker
@@ -466,15 +499,15 @@ export function PropertiesClient({
 
               {/* KPI grid */}
               <div className="dp-kpi">
-                <div className="dp-k"><div className="dp-kl">Revenue</div><div className="dp-kv">{fI(panelLatestRep.rev)}</div></div>
-                <div className="dp-k"><div className="dp-kl">Expenses</div><div className="dp-kv" style={{ color: 'var(--rd)' }}>{fI(panelLatestRep.exp)}</div></div>
-                <div className="dp-k"><div className="dp-kl">Op. Profit</div><div className="dp-kv" style={{ color: 'var(--gr)' }}>{fI(panelLatestRep.opProfit)}</div></div>
+                <div className="dp-k"><div className="dp-kl">Revenue</div><div className="dp-kv">{fF(panelLatestRep.rev)}</div></div>
+                <div className="dp-k"><div className="dp-kl">Expenses</div><div className="dp-kv" style={{ color: 'var(--rd)' }}>{fF(panelLatestRep.exp)}</div></div>
+                <div className="dp-k"><div className="dp-kl">Op. Profit</div><div className="dp-kv" style={{ color: 'var(--gr)' }}>{fF(panelLatestRep.opProfit)}</div></div>
                 <div className="dp-k">
                   <div className="dp-kl">Commission ({panelProp.effectiveComm}%)</div>
-                  <div className="dp-kv" style={{ color: 'var(--or)' }}>{fI(panelLatestRep.commission)}</div>
+                  <div className="dp-kv" style={{ color: 'var(--or)' }}>{fF(panelLatestRep.commission)}</div>
                   <div className="dp-ks">{panelProp.broker_public && panelProp.broker_name ? 'MHG + broker' : 'of op. profit'}</div>
                 </div>
-                <div className="dp-k"><div className="dp-kl">Investor Net</div><div className="dp-kv" style={{ color: 'var(--bl)' }}>{fI(panelLatestRep.invProfit)}</div></div>
+                <div className="dp-k"><div className="dp-kl">Investor Net</div><div className="dp-kv" style={{ color: 'var(--bl)' }}>{fF(panelLatestRep.invProfit)}</div></div>
                 <div className="dp-k">
                   <div className="dp-kl">Occupancy</div>
                   <div className="dp-kv" style={{ color: (panelLatestRep.occ ?? 0) >= 75 ? 'var(--gr)' : 'var(--go)' }}>
@@ -483,12 +516,16 @@ export function PropertiesClient({
                 </div>
                 <div className="dp-k">
                   <div className="dp-kl">ROI</div>
-                  <div className="dp-kv" style={{ color: panelLatestRep.roi > 0 ? ((panelLatestRep.roi ?? 0) >= 20 ? 'var(--gr)' : 'var(--rd)') : 'var(--t3)' }}>
+                  <div className="dp-kv" style={{
+                    color: !panelProp.capital
+                      ? 'var(--t3)'
+                      : (panelLatestRep.roi ?? 0) >= 20 ? 'var(--gr)' : 'var(--rd)',
+                  }}>
                     {panelProp.capital > 0 ? (panelLatestRep.roi ?? 0).toFixed(2) + '%' : 'N/A'}
                   </div>
                 </div>
-                <div className="dp-k"><div className="dp-kl">ADR</div><div className="dp-kv">{fI(panelLatestRep.adr ?? 0)}</div></div>
-                <div className="dp-k"><div className="dp-kl">RevPAR</div><div className="dp-kv">{fI(panelLatestRep.revpar ?? 0)}</div></div>
+                <div className="dp-k"><div className="dp-kl">ADR</div><div className="dp-kv">{fF(panelLatestRep.adr ?? 0)}</div></div>
+                <div className="dp-k"><div className="dp-kl">RevPAR</div><div className="dp-kv">{fF(panelLatestRep.revpar ?? 0)}</div></div>
               </div>
 
               {/* Commission breakdown box */}
@@ -502,10 +539,10 @@ export function PropertiesClient({
                   {panelProp.broker_public && panelProp.broker_name && panelProp.broker_pct > 0 ? (
                     <>
                       − MHG ({panelProp.comm}%): <strong style={{ color: 'var(--or)' }}>
-                        {fF(Math.round(Math.max(0, panelLatestRep.opProfit) * panelProp.comm / 100))}
+                        {fF(calcCommission(panelLatestRep.opProfit, panelProp.comm))}
                       </strong><br />
                       − {panelProp.broker_name} ({panelProp.broker_pct}%): <strong style={{ color: 'var(--or)' }}>
-                        {fF(Math.round(Math.max(0, panelLatestRep.opProfit) * panelProp.broker_pct / 100))}
+                        {fF(calcCommission(panelLatestRep.opProfit, panelProp.broker_pct))}
                       </strong><br />
                     </>
                   ) : (
@@ -553,15 +590,9 @@ export function PropertiesClient({
 // ReportHistory — collapsible, with correct N/A ROI display
 // ---------------------------------------------------------------------------
 
-function ReportHistory({ reps, capital }: { reps: SerializableReport[]; capital: number }) {
+function ReportHistory({ reps, capital }: { reps: RepRow[]; capital: number }) {
   const [open, setOpen] = useState(false);
   const MS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const fI = (n: number) => {
-    const v = Math.abs(n);
-    if (v >= 100000) return (n < 0 ? '-' : '') + '₹' + (v / 100000).toFixed(2) + 'L';
-    if (v >= 1000)   return (n < 0 ? '-' : '') + '₹' + (v / 1000).toFixed(2) + 'K';
-    return (n < 0 ? '-' : '') + '₹' + v.toFixed(2);
-  };
 
   return (
     <div>
@@ -585,10 +616,10 @@ function ReportHistory({ reps, capital }: { reps: SerializableReport[]; capital:
               {reps.map((r) => (
                 <tr key={r.id}>
                   <td>{MS[r.month]} {r.year}</td>
-                  <td>{fI(r.rev)}</td>
-                  <td style={{ color: 'var(--gr)' }}>{fI(r.opProfit)}</td>
-                  <td style={{ color: 'var(--or)' }}>{fI(r.commission)}</td>
-                  <td style={{ color: 'var(--bl)' }}>{fI(r.invProfit)}</td>
+                  <td>{fF(r.rev)}</td>
+                  <td style={{ color: 'var(--gr)' }}>{fF(r.opProfit)}</td>
+                  <td style={{ color: 'var(--or)' }}>{fF(r.commission)}</td>
+                  <td style={{ color: 'var(--bl)' }}>{fF(r.invProfit)}</td>
                   <td>{r.occ ?? 0}%</td>
                   {/* Use capital to decide N/A vs value — fixes 0% display bug */}
                   <td style={{ color: capital > 0 ? ((r.roi ?? 0) >= 20 ? 'var(--gr)' : 'var(--rd)') : 'var(--t3)' }}>

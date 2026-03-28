@@ -127,13 +127,9 @@ export default async function PayoutsPage() {
     notes:        p.notes,
   }));
 
-  // ── All-time pending count (for pending summary strip) ────────────────────
-  const totalPendingCount = payouts.filter((p) => p.status === 'pending').length;
-
   return (
     <PayoutsClient
       payouts={payouts}
-      totalPendingCount={totalPendingCount}
     />
   );
 }

@@ -5,7 +5,7 @@
 // Two callers, two methods — both SuperAdmin only:
 //
 // GET  — Topbar "Export CSV" and "Backup" buttons.
-//        ?model=bookings|daily-expenses|expenses|payouts|guests → CSV download
+//        ?model=bookings|daily-expenses|payouts|guests → CSV download
 //        ?model=all → Full JSON backup of all tables
 //        ?property_id= ?from= ?to= — optional filters (CSV models only)
 //
@@ -158,43 +158,6 @@ async function exportDailyExpenses(
   return toCsv(headers, data);
 }
 
-async function exportExpenses(
-  propertyId?: string,
-  from?: string,
-  to?: string
-): Promise<string> {
-  const where: Record<string, unknown> = {};
-  if (propertyId) where.property_id = propertyId;
-  if (from) {
-    const d = new Date(from);
-    where.year = { gte: d.getFullYear() };
-  }
-  if (to) {
-    const d = new Date(to);
-    where.year = { ...(where.year as object), lte: d.getFullYear() };
-  }
-
-  const rows = await prisma.expense.findMany({
-    where,
-    orderBy: [{ year: "desc" }, { month: "desc" }],
-  });
-
-  const headers = ["id", "property_id", "year", "month", "category", "amount", "notes", "created_at"];
-
-  const data = rows.map((r) => ({
-    id: r.id,
-    property_id: r.property_id,
-    year: r.year,
-    month: r.month,
-    category: r.category,
-    amount: r.amount.toNumber(),
-    notes: r.notes,
-    created_at: toDate(r.created_at),
-  }));
-
-  return toCsv(headers, data);
-}
-
 async function exportPayouts(
   propertyId?: string
 ): Promise<string> {
@@ -297,7 +260,6 @@ async function exportFullBackup(): Promise<unknown> {
     guests,
     bookings,
     dailyExpenses,
-    expenses,
     payouts,
     reports,
     utilsSettings,
@@ -307,7 +269,6 @@ async function exportFullBackup(): Promise<unknown> {
     prisma.guest.findMany(),
     prisma.booking.findMany(),
     prisma.dailyExpense.findMany(),
-    prisma.expense.findMany(),
     prisma.payout.findMany(),
     prisma.report.findMany(),
     prisma.utilsSetting.findMany(),
@@ -337,10 +298,6 @@ async function exportFullBackup(): Promise<unknown> {
       food_cost: b.food_cost?.toString() ?? null,
     })),
     daily_expenses: dailyExpenses.map((e) => ({
-      ...e,
-      amount: e.amount.toString(),
-    })),
-    expenses: expenses.map((e) => ({
       ...e,
       amount: e.amount.toString(),
     })),
@@ -388,10 +345,6 @@ export async function GET(
         const csv = await exportDailyExpenses(propertyId, from, to);
         return csvResponse(csv, "mg-daily-expenses-export.csv");
       }
-      case "expenses": {
-        const csv = await exportExpenses(propertyId, from, to);
-        return csvResponse(csv, "mg-expenses-export.csv");
-      }
       case "payouts": {
         const csv = await exportPayouts(propertyId);
         return csvResponse(csv, "mg-payouts-export.csv");
@@ -409,7 +362,7 @@ export async function GET(
         return NextResponse.json(
           {
             error:
-              'Invalid ?model= parameter. Use: bookings, daily-expenses, expenses, payouts, guests, or all.',
+              'Invalid ?model= parameter. Use: bookings, daily-expenses, payouts, guests, or all.',
           },
           { status: 400 }
         );

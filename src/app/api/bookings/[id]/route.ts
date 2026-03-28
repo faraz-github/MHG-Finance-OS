@@ -116,6 +116,17 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
+  // Normalise camelCase keys from BookingModal → snake_case
+  if (body.checkIn      !== undefined && body.check_in      === undefined) body.check_in      = body.checkIn;
+  if (body.checkOut     !== undefined && body.check_out     === undefined) body.check_out     = body.checkOut;
+  if (body.roomRevenue  !== undefined && body.room_amount   === undefined) body.room_amount   = body.roomRevenue;
+  if (body.bookingType  !== undefined && body.booking_type  === undefined) body.booking_type  = body.bookingType;
+  if (body.eventType    !== undefined && body.event_type    === undefined) body.event_type    = body.eventType;
+  if (body.eventGuests  !== undefined && body.event_guests  === undefined) body.event_guests  = body.eventGuests;
+  if (body.guestName    !== undefined && body.guest_name    === undefined) body.guest_name    = body.guestName;
+  if (body.guestPhone   !== undefined && body.guest_phone   === undefined) body.guest_phone   = body.guestPhone;
+  if (body.guestEmail   !== undefined && body.guest_email   === undefined) body.guest_email   = body.guestEmail;
+
   const updateData: Prisma.BookingUpdateInput = {};
   if (typeof body.check_in === "string")
     updateData.check_in = new Date(body.check_in);
@@ -143,12 +154,10 @@ export async function PATCH(
   if (body.event_guests !== undefined)
     updateData.event_guests =
       typeof body.event_guests === "number" ? Math.floor(body.event_guests) : null;
-  if (body.food_cost !== undefined)
-    updateData.food_cost =
-      typeof body.food_cost === "number" ? body.food_cost : null;
   if (body.services !== undefined)
-    updateData.services =
-      typeof body.services === "string" ? body.services.trim() || null : null;
+    updateData.services = Array.isArray(body.services)
+      ? JSON.stringify(body.services)
+      : typeof body.services === "string" ? body.services.trim() || null : null;
   if (body.rating !== undefined)
     updateData.rating =
       typeof body.rating === "number"

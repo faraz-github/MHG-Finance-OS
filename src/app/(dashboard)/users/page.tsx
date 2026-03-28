@@ -96,6 +96,64 @@ export default function UsersPage() {
   const [deleteUsername, setDeleteUsername] = useState('');
   const [deleteLoading,  setDeleteLoading]  = useState(false);
 
+  // Nuke database
+  const NUKE_TABLES = [
+    { key: 'reports',        label: 'Reports'          },
+    { key: 'payouts',        label: 'Payout Ledger'    },
+    { key: 'daily_expenses', label: 'Daily Expenses'   },
+    { key: 'bookings',       label: 'Bookings'         },
+    { key: 'guests',         label: 'Guests'           },
+    { key: 'investors',      label: 'Investors'        },
+    { key: 'utils_settings', label: 'Rent & Utilities' },
+    { key: 'properties',     label: 'Properties'       },
+  ] as const;
+  type NukeTableKey = typeof NUKE_TABLES[number]['key'];
+
+  const [nukeOpen,     setNukeOpen]     = useState(false);
+  const [nukeTables,   setNukeTables]   = useState<Set<NukeTableKey>>(
+    new Set(['reports', 'payouts', 'daily_expenses', 'bookings', 'guests'])
+  );
+  const [nukePassword, setNukePassword] = useState('');
+  const [nukeLoading,  setNukeLoading]  = useState(false);
+  const [nukeError,    setNukeError]    = useState<string | null>(null);
+
+  function toggleNukeTable(key: NukeTableKey) {
+    setNukeTables((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  async function handleNuke() {
+    if (!nukePassword) { setNukeError('Enter your password.'); return; }
+    if (nukeTables.size === 0) { setNukeError('Select at least one table.'); return; }
+    setNukeLoading(true);
+    setNukeError(null);
+    try {
+      const res = await fetch('/api/admin/nuke', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password: nukePassword, tables: [...nukeTables] }),
+      });
+      const data = await res.json() as { cleared?: string[]; counts?: Record<string, number>; error?: string };
+      if (!res.ok) {
+        setNukeError(data.error ?? 'Failed.');
+        return;
+      }
+      const summary = (data.cleared ?? [])
+        .map((t) => `${t} (${data.counts?.[t] ?? 0} rows)`)
+        .join(', ');
+      toast(`✓ Cleared: ${summary}`, 'ok');
+      setNukeOpen(false);
+      setNukePassword('');
+    } catch {
+      setNukeError('Network error — please try again.');
+    } finally {
+      setNukeLoading(false);
+    }
+  }
+
   // Permissions editor
   const [selectedRoleId,  setSelectedRoleId]  = useState('');
   const [editedTabPerms,  setEditedTabPerms]  = useState<Record<string, Record<TabKey, boolean>>>({});
@@ -448,6 +506,7 @@ export default function UsersPage() {
                 {users.map((u) => {
                   const isSuperAdmin = u.role.name === 'SuperAdmin';
                   const isAdmin      = u.role.name === 'Admin';
+                  const isCoHost     = u.role.name === 'Co-Host';
                   return (
                     <tr key={u.id}>
                       <td style={{ fontWeight: 600 }}>{u.username}</td>
@@ -456,9 +515,9 @@ export default function UsersPage() {
                           display: 'inline-flex', alignItems: 'center',
                           padding: '3px 10px', borderRadius: '20px',
                           fontSize: '11px', fontWeight: 600,
-                          background: isSuperAdmin ? 'var(--orp)' : isAdmin ? 'rgba(99,102,241,.1)' : 'var(--s2)',
-                          color:      isSuperAdmin ? 'var(--or)'  : isAdmin ? '#6366F1'             : 'var(--t2)',
-                          border: `1px solid ${isSuperAdmin ? 'var(--or)' : isAdmin ? 'rgba(99,102,241,.25)' : 'var(--bdr)'}`,
+                          background: isSuperAdmin ? 'var(--orp)'            : isAdmin   ? 'rgba(99,102,241,.1)'  : isCoHost ? 'rgba(20,184,166,.1)'  : 'var(--s2)',
+                          color:      isSuperAdmin ? 'var(--or)'             : isAdmin   ? '#6366F1'              : isCoHost ? '#0D9488'              : 'var(--t2)',
+                          border: `1px solid ${isSuperAdmin ? 'var(--or)' : isAdmin ? 'rgba(99,102,241,.25)' : isCoHost ? 'rgba(20,184,166,.25)' : 'var(--bdr)'}`,
                         }}>
                           {isSuperAdmin && '⚙ '}{u.role.name}
                         </span>
@@ -701,6 +760,138 @@ export default function UsersPage() {
               disabled={deleteLoading}
             >
               {deleteLoading ? 'Deleting…' : 'Delete User'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* DANGER ZONE — NUKE DATABASE                                         */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      <div style={{
+        marginTop: '32px',
+        border: '2px solid var(--rd)',
+        borderRadius: '10px',
+        padding: '18px 20px',
+        background: 'var(--rdp)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--rd)', marginBottom: '3px' }}>
+              ⚠ Danger Zone — Clear Database
+            </div>
+            <div style={{ fontSize: '11.5px', color: 'var(--t2)' }}>
+              Permanently delete selected operational data. Roles and users are never affected.
+            </div>
+          </div>
+          <button
+            className="btn btn-sm"
+            style={{ background: 'var(--rd)', color: '#fff', whiteSpace: 'nowrap' }}
+            onClick={() => { setNukeOpen(true); setNukeError(null); setNukePassword(''); }}
+          >
+            🗑 Clear Data…
+          </button>
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* NUKE CONFIRM MODAL                                                  */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      <div
+        className={`${styles.ov}${nukeOpen ? ` ${styles.open}` : ''}`}
+        onClick={() => !nukeLoading && setNukeOpen(false)}
+      >
+        <div
+          className={styles.modal}
+          onClick={(e) => e.stopPropagation()}
+          style={{ width: '440px' }}
+        >
+          <button className={styles['mc-x']} onClick={() => setNukeOpen(false)} disabled={nukeLoading}>✕</button>
+          <div className={styles.mt} style={{ color: 'var(--rd)' }}>⚠ Clear Database Tables</div>
+          <div className={styles.ms}>
+            This permanently deletes data. This action <strong>cannot be undone</strong>.
+          </div>
+
+          {/* Table selection */}
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: '8px' }}>
+              Select tables to clear
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              {NUKE_TABLES.map(({ key, label }) => (
+                <label
+                  key={key}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '7px',
+                    fontSize: '12.5px', cursor: 'pointer', padding: '5px 8px',
+                    borderRadius: '6px', background: nukeTables.has(key) ? 'var(--rdp)' : 'var(--bg2)',
+                    border: `1px solid ${nukeTables.has(key) ? 'var(--rd)' : 'var(--bdr)'}`,
+                    color: nukeTables.has(key) ? 'var(--rd)' : 'var(--t2)',
+                    fontWeight: nukeTables.has(key) ? 600 : 400,
+                    transition: 'all .12s',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={nukeTables.has(key)}
+                    onChange={() => toggleNukeTable(key)}
+                    style={{ accentColor: 'var(--rd)', width: '14px', height: '14px' }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Warning summary */}
+          {nukeTables.size > 0 && (
+            <div style={{
+              background: 'var(--rdp)', border: '1px solid var(--rd)', borderRadius: '7px',
+              padding: '8px 12px', marginBottom: '14px', fontSize: '11.5px', color: 'var(--rd)',
+            }}>
+              {nukeTables.size} table{nukeTables.size !== 1 ? 's' : ''} will be permanently cleared:&nbsp;
+              <strong>{[...nukeTables].join(', ')}</strong>
+            </div>
+          )}
+
+          {/* Password confirmation */}
+          <div style={{ marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--t2)', marginBottom: '5px' }}>
+              Confirm your SuperAdmin password
+            </label>
+            <input
+              className={styles.fi}
+              type="password"
+              placeholder="Enter your password to confirm"
+              value={nukePassword}
+              onChange={(e) => setNukePassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !nukeLoading && handleNuke()}
+              autoComplete="current-password"
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          {nukeError && (
+            <div style={{ fontSize: '12px', color: 'var(--rd)', marginBottom: '8px' }}>
+              {nukeError}
+            </div>
+          )}
+
+          <div className={styles.mf}>
+            <button
+              className={`${styles.mb} ${styles.can}`}
+              onClick={() => setNukeOpen(false)}
+              disabled={nukeLoading}
+            >
+              Cancel
+            </button>
+            <button
+              className={styles.mb}
+              style={{ background: 'var(--rd)', color: '#fff' }}
+              onClick={handleNuke}
+              disabled={nukeLoading || !nukePassword || nukeTables.size === 0}
+            >
+              {nukeLoading ? 'Clearing…' : `Clear ${nukeTables.size} table${nukeTables.size !== 1 ? 's' : ''}`}
             </button>
           </div>
         </div>

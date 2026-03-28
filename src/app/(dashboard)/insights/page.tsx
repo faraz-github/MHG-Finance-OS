@@ -1,17 +1,8 @@
 // src/app/(dashboard)/insights/page.tsx
 //
 // Smart Insights page — Server Component shell.
-//
-// Fetches: Report rows, Property rows, and the current-period targets
-// from the UtilsSetting table (key = `targets_${year}_${month}`).
-//
-// HTML source: <div class="page" id="page-insights"> + rndInsights()
-//              + genInsights() + saveTargets()
-//
-// Targets storage decision:
-//   HTML:         localStorage key `mhg_targets_${cY}_${cM}`
-//   Full-stack:   UtilsSetting table, key = `targets_${year}_${month}`
-//   No schema change needed — UtilsSetting already exists with (key, value Json).
+// Fetches Report rows, Property rows (id, name, city, comm + investor capital),
+// and current-period targets from UtilsSetting.
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -19,11 +10,10 @@ import { verifyToken } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getRolePermissions } from '@/lib/permissions';
 import { InsightsClient } from './InsightsClient';
+import type { InsightsProperty } from './InsightsClient';
 import type { SerializableReport } from '../dashboard/page';
-import type { SerializableProperty } from '../properties/page';
 
 export default async function InsightsPage() {
-  // ── Session + permissions ─────────────────────────────────────────────────
   const cookieName = process.env.COOKIE_NAME ?? 'mg_session';
   const cookieStore = await cookies();
   const token = cookieStore.get(cookieName)?.value ?? '';
@@ -34,26 +24,21 @@ export default async function InsightsPage() {
   const tabPerms  = rolePerms?.tabPermissions ?? {};
   if (tabPerms['insights'] !== true) redirect('/dashboard');
 
-  // ── Current period defaults (server-side — matches Zustand defaults) ───────
-  // The Zustand store derives cM/cY from new Date() on the client.
-  // We use the same logic here so the pre-fetched targets match.
+  // Current period defaults — matches Zustand store defaults
   const now = new Date();
   const cM  = now.getMonth() + 1;
   const cY  = now.getFullYear();
 
   // ── Fetch targets for current period ──────────────────────────────────────
-  // Key pattern: `targets_${year}_${month}` — same as /api/targets POST handler
   const targetKey = `targets_${cY}_${cM}`;
   let initialTargets: Record<string, number> = {};
   try {
-    const setting = await prisma.utilsSetting.findUnique({
-      where: { key: targetKey },
-    });
+    const setting = await prisma.utilsSetting.findUnique({ where: { key: targetKey } });
     if (setting?.value && typeof setting.value === 'object') {
       initialTargets = setting.value as Record<string, number>;
     }
   } catch {
-    // UtilsSetting may not have this key yet — initialTargets stays {}
+    // No row yet — initialTargets stays {}
   }
 
   // ── Fetch reports ─────────────────────────────────────────────────────────
@@ -75,6 +60,8 @@ export default async function InsightsPage() {
       exp:        Number(d.exp        ?? 0),
       opProfit:   Number(d.opProfit   ?? 0),
       commission: Number(d.commission ?? 0),
+      mgComm:     Number(d.mgComm     ?? d.commission ?? 0),
+      brokerComm: Number(d.brokerComm  ?? 0),
       invProfit:  Number(d.invProfit  ?? 0),
       nights:     Number(d.nights     ?? 0),
       days:       Number(d.days       ?? 0),
@@ -82,28 +69,32 @@ export default async function InsightsPage() {
       roi:        Number(d.roi        ?? 0),
       adr:        Number(d.adr        ?? 0),
       revpar:     Number(d.revpar     ?? 0),
-      channels:   (d.channels as Record<string, number>) ?? {},
-      expCats:    (d.expCats  as Record<string, number>) ?? {},
+      channels:    (d.channels as Record<string, number>) ?? {},
+      expCats:     (d.expCats  as Record<string, number>) ?? {},
+      _hasCapital: Boolean(d._hasCapital),
     }];
   });
 
-  // ── Fetch properties ──────────────────────────────────────────────────────
+  // ── Fetch properties — id, name, city, comm + investor capital sum ────────
   const rawProps = await prisma.property.findMany({
-    select: { id: true, name: true, address: true, city: true, state: true, comm: true, capital: true, type: true, rooms: true, assets: true },
+    select: { id: true, name: true, city: true, comm: true },
     orderBy: { name: 'asc' },
   });
 
-  const properties: SerializableProperty[] = rawProps.map((p) => ({
+  const rawInvestorCapitals = await prisma.investor.findMany({
+    select: { property_id: true, capital: true },
+  });
+  const investorCapitalMap: Record<string, number> = {};
+  for (const inv of rawInvestorCapitals) {
+    investorCapitalMap[inv.property_id] = (investorCapitalMap[inv.property_id] ?? 0) + Number(inv.capital);
+  }
+
+  const properties: InsightsProperty[] = rawProps.map((p) => ({
     id:      p.id,
     name:    p.name,
     city:    p.city ?? '',
-    state:   p.state ?? '',
     comm:    Number(p.comm) || 25,
-    capital: Number(p.capital) || 0,
-    address: p.address,
-    type:    p.type ?? '',
-    rooms:   Number(p.rooms) || 0,
-    assets:  (p.assets as SerializableProperty['assets']) ?? [],
+    capital: investorCapitalMap[p.id] ?? 0,
   }));
 
   return (

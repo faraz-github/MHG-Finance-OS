@@ -15,7 +15,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import styles from '@/components/ui/ui.module.css';
-import type { SerializableProperty } from '../properties/page';
+import type { DailyExpProperty } from './DailyExpClient';
 
 // ---------------------------------------------------------------------------
 // Constants — verbatim from the HTML dexpModal select options
@@ -64,7 +64,7 @@ interface DailyExpModalProps {
   onClose: () => void;
   editId: string | null;
   initialValues?: Partial<DailyExpFormValues>;
-  properties: SerializableProperty[];
+  properties: DailyExpProperty[];
   onSave: (payload: DailyExpSavePayload, editId: string | null) => Promise<void>;
   isSaving: boolean;
 }

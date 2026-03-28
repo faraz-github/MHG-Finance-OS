@@ -21,7 +21,7 @@
 // After a successful modal save the page is revalidated via router.refresh().
 
 import { useState, useCallback } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/Toast';
 import { PropModal } from '@/app/(dashboard)/properties/PropModal';
 import { InvModal } from '@/app/(dashboard)/investors/InvModal';
@@ -31,18 +31,8 @@ import type { SerializableProperty } from '@/app/(dashboard)/properties/page';
 import styles from './Topbar.module.css';
 
 // ---------------------------------------------------------------------------
-// Route segment → export model map (for "Export CSV" button)
+// Route segment → export model map (for "Export CSV / PDF" buttons)
 // ---------------------------------------------------------------------------
-
-const PATH_TO_MODEL: Record<string, string> = {
-  '/bookings':   'bookings',
-  '/dailyexp':   'daily-expenses',
-  '/expenses':   'expenses',
-  '/payouts':    'payouts',
-  '/crm':        'guests',
-  '/investors':  'payouts',  // investors page → export payouts for context
-  '/properties': 'bookings', // properties page → export bookings
-};
 
 // ---------------------------------------------------------------------------
 // Props
@@ -59,7 +49,6 @@ interface TopbarActionsProps {
 export function TopbarActions({ role }: TopbarActionsProps) {
   const isSuperAdmin = role === 'SuperAdmin';
   const router   = useRouter();
-  const pathname = usePathname();
   const { toast } = useToast();
 
   // ── Modal state ───────────────────────────────────────────────────────────
@@ -154,35 +143,6 @@ export function TopbarActions({ role }: TopbarActionsProps) {
     }
   }
 
-  // ── Export CSV ────────────────────────────────────────────────────────────
-  async function handleExportCsv() {
-    // Resolve the export model from the current route segment
-    const segment = '/' + (pathname.split('/')[1] ?? '');
-    const model   = PATH_TO_MODEL[segment];
-
-    if (!model) {
-      toast('CSV export is not available for this page.', 'in');
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/exports?model=${model}`);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: string };
-        toast(err.error ?? 'Export failed', 'er');
-        return;
-      }
-      const blob     = await res.blob();
-      const url      = URL.createObjectURL(blob);
-      const a        = document.createElement('a');
-      a.href         = url;
-      a.download     = `mg-${model}-export.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      toast('Export failed — please try again', 'er');
-    }
-  }
 
   // ── Backup ────────────────────────────────────────────────────────────────
   async function handleBackup() {
@@ -287,9 +247,6 @@ export function TopbarActions({ role }: TopbarActionsProps) {
           📂 Restore
           <input type="file" accept=".json" style={{ display: 'none' }} onChange={handleRestore} />
         </label>
-        <button type="button" className={btnClass('btn-or', 'btn-sm')} onClick={handleExportCsv}>
-          ↓ Export CSV
-        </button>
       </div>
 
       {/* ── Mobile: overflow dropdown (hidden on desktop via CSS) ──────── */}
@@ -316,9 +273,6 @@ export function TopbarActions({ role }: TopbarActionsProps) {
                 <button type="button" onClick={() => { handleOpenInvModal(); setMenuOpen(false); }}>
                   👤 Investor
                 </button>
-                <button type="button" onClick={() => { handleExportCsv(); setMenuOpen(false); }}>
-                  ↓ Export CSV
-                </button>
                 <button type="button" onClick={() => { handleBackup(); setMenuOpen(false); }}>
                   💾 Backup
                 </button>
@@ -338,7 +292,6 @@ export function TopbarActions({ role }: TopbarActionsProps) {
         onClose={() => setPropModalOpen(false)}
         editId={null}
         initialValues={undefined}
-        knownCities={[]}
         onSave={handleSaveProperty}
         isSaving={isSavingProp}
       />

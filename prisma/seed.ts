@@ -2,13 +2,13 @@
 // =============================================================================
 // MehmanGhar Financial OS — Database Seed Script
 //
-// Seeds two roles and one SuperAdmin user.
-// Idempotent — safe to re-run at any time.
+// Seeds three roles and one SuperAdmin user. Idempotent — safe to re-run.
 //
 // Roles seeded:
 //   SuperAdmin — full access to all 14 tabs + user management
 //   Admin      — Daily Expenses + Bookings + Monthly Entry
-//                (v3 plan Section 7, sidebar audit Section 5)
+//   Co-Host    — Bookings + Daily Expenses + Rent & Utilities
+//                (property operations without financial visibility)
 //
 // Usage: npx prisma db seed
 // =============================================================================
@@ -22,8 +22,6 @@ import bcrypt from "bcryptjs";
 config({ path: ".env.local" });
 
 const pool = new Pool({ connectionString: process.env.DIRECT_URL });
-// @types/pg conflicts with @prisma/adapter-pg's bundled pg types.
-// The Pool is structurally compatible at runtime — cast bridges the mismatch.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const adapter = new PrismaPg(pool as any);
 const prisma = new PrismaClient({
@@ -57,9 +55,7 @@ function allTabsCrud(): Record<TabKey, CrudMap> {
   ) as Record<TabKey, CrudMap>;
 }
 
-/** Admin: Daily Expenses, Bookings, and Monthly Entry visible + full CRUD.
- *  All other tabs hidden and no CRUD access.
- *  Per v3 plan Section 7 — Open Decision #2: confirm with business owner. */
+/** Admin: Daily Expenses, Bookings, and Monthly Entry visible + full CRUD. */
 function adminTabPermissions(): Record<TabKey, boolean> {
   return Object.fromEntries(
     ALL_TABS.map((t) => [t, t === "dailyexp" || t === "bookings" || t === "monthlyentry"])
@@ -71,6 +67,25 @@ function adminCrudPermissions(): Record<TabKey, CrudMap> {
   const none: CrudMap = { create: false, read: false, update: false, delete: false };
   return Object.fromEntries(
     ALL_TABS.map((t) => [t, t === "dailyexp" || t === "bookings" || t === "monthlyentry" ? full : none])
+  ) as Record<TabKey, CrudMap>;
+}
+
+/** Co-Host: Bookings, Daily Expenses, Rent & Utilities.
+ *  Property operations only — no financial analytics visibility.
+ *  SuperAdmin can adjust this via the permissions UI. */
+function coHostTabPermissions(): Record<TabKey, boolean> {
+  const allowed = new Set<TabKey>(["bookings", "dailyexp", "utils"]);
+  return Object.fromEntries(
+    ALL_TABS.map((t) => [t, allowed.has(t)])
+  ) as Record<TabKey, boolean>;
+}
+
+function coHostCrudPermissions(): Record<TabKey, CrudMap> {
+  const full: CrudMap = { create: true, read: true, update: true, delete: true };
+  const none: CrudMap = { create: false, read: false, update: false, delete: false };
+  const allowed = new Set<TabKey>(["bookings", "dailyexp", "utils"]);
+  return Object.fromEntries(
+    ALL_TABS.map((t) => [t, allowed.has(t) ? full : none])
   ) as Record<TabKey, CrudMap>;
 }
 
@@ -97,7 +112,7 @@ async function main(): Promise<void> {
 
   // -- SuperAdmin role --
   const superAdminRole = await prisma.role.upsert({
-    where: { name: "SuperAdmin" },
+    where:  { name: "SuperAdmin" },
     update: { tab_permissions: allTabsVisible(), crud_permissions: allTabsCrud() },
     create: { name: "SuperAdmin", tab_permissions: allTabsVisible(), crud_permissions: allTabsCrud() },
   });
@@ -105,16 +120,24 @@ async function main(): Promise<void> {
 
   // -- Admin role --
   const adminRole = await prisma.role.upsert({
-    where: { name: "Admin" },
+    where:  { name: "Admin" },
     update: { tab_permissions: adminTabPermissions(), crud_permissions: adminCrudPermissions() },
     create: { name: "Admin", tab_permissions: adminTabPermissions(), crud_permissions: adminCrudPermissions() },
   });
   console.log(`[seed] Admin role — id: ${adminRole.id}`);
 
+  // -- Co-Host role --
+  const coHostRole = await prisma.role.upsert({
+    where:  { name: "Co-Host" },
+    update: { tab_permissions: coHostTabPermissions(), crud_permissions: coHostCrudPermissions() },
+    create: { name: "Co-Host", tab_permissions: coHostTabPermissions(), crud_permissions: coHostCrudPermissions() },
+  });
+  console.log(`[seed] Co-Host role — id: ${coHostRole.id}`);
+
   // -- SuperAdmin user --
   const passwordHash = await bcrypt.hash(plaintextPassword, rounds);
   const superAdminUser = await prisma.user.upsert({
-    where: { username },
+    where:  { username },
     update: { password_hash: passwordHash, role_id: superAdminRole.id },
     create: { username, password_hash: passwordHash, role_id: superAdminRole.id },
   });

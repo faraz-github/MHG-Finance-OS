@@ -25,7 +25,19 @@ import { CashFlowChart } from '@/components/charts/CashFlowChart';
 import type { CashFlowTrendPoint } from '@/components/charts/CashFlowChart';
 import { RevExpenseBar } from './RevExpenseBar';
 import type { RevExpTrendPoint } from './RevExpenseBar';
-import type { SerializableReport, SerializableProperty } from '../dashboard/page';
+import type { SerializableReport } from '../dashboard/page';
+
+// ---------------------------------------------------------------------------
+// Minimal property type — cashflow only needs id, name, city, comm, capital
+// ---------------------------------------------------------------------------
+
+export interface CashFlowProperty {
+  id:      string;
+  name:    string;
+  city:    string;
+  comm:    number;
+  capital: number;
+}
 
 // ---------------------------------------------------------------------------
 // Formatting helpers — full precision with 2 decimal places
@@ -110,7 +122,7 @@ function getPeriodMonths(
 
 interface CashFlowClientProps {
   reports: SerializableReport[];
-  properties: SerializableProperty[];
+  properties: CashFlowProperty[];
 }
 
 // ---------------------------------------------------------------------------
@@ -193,7 +205,7 @@ export function CashFlowClient({ reports, properties }: CashFlowClientProps) {
 
   const filterBar = <PageFilterBar filters={filters} config={{ city: true, property: true }} cities={cityOptions} properties={propOptions} />;
 
-  if (!agg || !agg.rev) {
+  if (!agg || (!agg.rev && !agg.exp)) {
     return (
       <div id="cf-empty" className="es">
         <div className="es-ico">💸</div>

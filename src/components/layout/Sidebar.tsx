@@ -3,7 +3,6 @@
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import { getRolePermissions } from '@/lib/permissions';
-import { prisma } from '@/lib/db';
 import type { TabKey } from '@/lib/permissions';
 import { NavItem } from './NavItem';
 import { LogoutButton } from './LogoutButton';
@@ -223,15 +222,6 @@ export async function Sidebar() {
   const rolePerms = await getRolePermissions(session.role);
   const tabPerms  = rolePerms?.tabPermissions ?? {};
 
-  let pendingPayoutCount = 0;
-  try {
-    pendingPayoutCount = await prisma.payout.count({
-      where: { amount_paid: null, paid_on: null },
-    });
-  } catch {
-    // Safe default — payout table may be empty
-  }
-
   return (
     <SidebarShell>
       <div className={styles['sb-logo']}>
@@ -261,20 +251,12 @@ export async function Sidebar() {
             <div key={section.label} className={styles['sb-sec']}>
               <div className={styles['sb-lbl']}>{section.label}</div>
 
-              {visibleItems.map((item) => {
-                const showBadge = item.permKey === 'payouts' && pendingPayoutCount > 0;
-                return (
-                  <NavItem key={item.href} href={item.href}>
-                    {item.icon}
-                    {item.label}
-                    {showBadge && (
-                      <span className={styles['pending-badge']}>
-                        {pendingPayoutCount}
-                      </span>
-                    )}
-                  </NavItem>
-                );
-              })}
+              {visibleItems.map((item) => (
+                <NavItem key={item.href} href={item.href}>
+                  {item.icon}
+                  {item.label}
+                </NavItem>
+              ))}
             </div>
           );
         })}

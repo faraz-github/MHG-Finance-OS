@@ -103,6 +103,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
+  // Normalise camelCase keys from DailyExpModal → snake_case
+  if (body.expenseDate  !== undefined && body.expense_date  === undefined) body.expense_date  = body.expenseDate;
+  if (body.propertyId   !== undefined && body.property_id   === undefined) body.property_id   = body.propertyId;
+  if (body.invoicePath  !== undefined && body.invoice_path  === undefined) body.invoice_path  = body.invoicePath;
+
   const updateData: Prisma.DailyExpenseUpdateInput = {};
   if (typeof body.expense_date === "string")
     updateData.expense_date = new Date(body.expense_date);

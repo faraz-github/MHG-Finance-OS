@@ -340,9 +340,9 @@ export async function POST(
         food_cost:
           typeof body.food_cost === "number" ? body.food_cost : null,
         services:
-          typeof body.services === "string"
-            ? body.services.trim() || null
-            : null,
+          Array.isArray(body.services)
+            ? JSON.stringify(body.services)
+            : typeof body.services === "string" ? body.services.trim() || null : null,
         rating:
           typeof body.rating === "number"
             ? Math.min(5, Math.max(1, Math.floor(body.rating)))

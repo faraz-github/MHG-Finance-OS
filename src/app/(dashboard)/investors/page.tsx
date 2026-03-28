@@ -86,22 +86,35 @@ export default async function InvestorsPage() {
 
   // ── Fetch properties (for modal + table display) ──────────────────────────
   const rawProps = await prisma.property.findMany({
-    select: { id: true, name: true, address: true, city: true, state: true, comm: true, capital: true, type: true, rooms: true, assets: true },
+    select: {
+      id: true, name: true, address: true, city: true, state: true,
+      comm: true, capital: true, type: true, rooms: true, assets: true,
+      broker_name: true, broker_pct: true, broker_public: true,
+    },
     orderBy: { name: 'asc' },
   });
 
-  const properties: SerializableProperty[] = rawProps.map((p) => ({
-    id:      p.id,
-    name:    p.name,
-    city:    p.city ?? '',
-    state:   p.state ?? '',
-    comm:    Number(p.comm) || 25,
-    capital: Number(p.capital) || 0,
-    address: p.address,
-    type:    p.type ?? '',
-    rooms:   Number(p.rooms) || 0,
-    assets:  (p.assets as SerializableProperty['assets']) ?? [],
-  }));
+  const properties: SerializableProperty[] = rawProps.map((p) => {
+    const comm      = Number(p.comm)       || 25;
+    const brokerPct = Number(p.broker_pct) || 0;
+    const brokerPub = p.broker_public ?? false;
+    return {
+      id:            p.id,
+      name:          p.name,
+      city:          p.city ?? '',
+      state:         p.state ?? '',
+      comm,
+      capital:       Number(p.capital) || 0,
+      address:       p.address,
+      type:          p.type ?? '',
+      rooms:         Number(p.rooms) || 0,
+      assets:        (p.assets as SerializableProperty['assets']) ?? [],
+      broker_name:   p.broker_name ?? '',
+      broker_pct:    brokerPct,
+      broker_public: brokerPub,
+      effectiveComm: brokerPub ? comm + brokerPct : comm,
+    };
+  });
 
   // ── Fetch reports (for period payout + detail panel) ──────────────────────
   const rawReports = await prisma.report.findMany({
@@ -122,6 +135,8 @@ export default async function InvestorsPage() {
       exp:        Number(d.exp        ?? 0),
       opProfit:   Number(d.opProfit   ?? 0),
       commission: Number(d.commission ?? 0),
+      mgComm:     Number(d.mgComm     ?? d.commission ?? 0),
+      brokerComm: Number(d.brokerComm  ?? 0),
       invProfit:  Number(d.invProfit  ?? 0),
       nights:     Number(d.nights     ?? 0),
       days:       Number(d.days       ?? 0),
@@ -129,21 +144,20 @@ export default async function InvestorsPage() {
       roi:        Number(d.roi        ?? 0),
       adr:        Number(d.adr        ?? 0),
       revpar:     Number(d.revpar     ?? 0),
-      channels:   (d.channels as Record<string, number>) ?? {},
-      expCats:    (d.expCats  as Record<string, number>) ?? {},
+      channels:    (d.channels as Record<string, number>) ?? {},
+      expCats:     (d.expCats  as Record<string, number>) ?? {},
+      _hasCapital: Boolean(d._hasCapital),
     }];
   });
 
-  // ── computeInvestorROI — server-side port of the HTML function ────────────
-  // HTML: calcROI(totProfit, base) where base = inv.capital || sum(prop.capital)
-  // v1: base = inv.capital only (prop.capital requires schema migration)
+  // ── computeInvestorROI ────────────────────────────────────────────────────
+  // Each investor's actual profit = property invProfit × (sharePct / 100).
+  // ROI = investor's actual profit / investor's own capital.
   const investorRoi: Record<string, number | null> = {};
   investors.forEach((inv) => {
     const invReps   = reports.filter((r) => r.pid === inv.propertyId);
-    const totProfit = invReps.reduce((s, r) => s + r.invProfit, 0);
-    const base      = inv.capital || 0;
-    // calcROI returns null when base is 0 (capital not entered) — correct per v3 spec
-    investorRoi[inv.id] = calcROI(totProfit, base);
+    const totProfit = invReps.reduce((s, r) => s + r.invProfit * (inv.sharePct / 100), 0);
+    investorRoi[inv.id] = calcROI(totProfit, inv.capital);
   });
 
   return (

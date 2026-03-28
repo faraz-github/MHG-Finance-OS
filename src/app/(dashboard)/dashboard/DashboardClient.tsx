@@ -11,7 +11,7 @@
 //   - .crow.r2: RevenueChart + CommissionDonut
 //   - .crow.r3: OccupancyChart + Booking Channels Donut + Property Revenue bar
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { usePeriod } from '@/hooks/usePeriod';
 import { usePageFilters } from '@/hooks/usePageFilters';
@@ -291,10 +291,13 @@ export function DashboardClient({ reports, properties, initialExpenseGoal, goalM
     () => Object.fromEntries(properties.map((p) => [p.id, p])),
     [properties],
   );
-  const propById = (pid: string): PropLookup | null =>
-    propMap[pid]
-      ? { id: pid, city: propMap[pid].city, comm: propMap[pid].comm }
-      : null;
+  const propById = useCallback(
+    (pid: string): PropLookup | null =>
+      propMap[pid]
+        ? { id: pid, city: propMap[pid].city, comm: propMap[pid].comm }
+        : null,
+    [propMap],
+  );
 
   const allReps = reports as RepRow[];
 
@@ -307,7 +310,7 @@ export function DashboardClient({ reports, properties, initialExpenseGoal, goalM
   const filteredReps = useMemo(
     () => getFilteredReps(allReps, propById, pageFilterState),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allReps, propMap, pageFilterState,
+    [allReps, propById, pageFilterState,
      periodState.cPType, periodState.cM, periodState.cY,
      periodState.cQ, periodState.cFY, periodState.cDateFrom, periodState.cDateTo,
      periodState.cDay, periodState.cWeek],
@@ -367,13 +370,20 @@ export function DashboardClient({ reports, properties, initialExpenseGoal, goalM
 
   // ── Derived display values ────────────────────────────────────────────────
   const totalNights = filteredReps.reduce((s: number, r: RepRow) => s + (r.nights ?? 0), 0);
-  const activeProps = new Set(filteredReps.map((r: RepRow) => r.pid)).size;
+  // filteredPids — set of property IDs visible in current filter (reused below)
+  const filteredPids = useMemo(
+    () => new Set(filteredReps.map((r: RepRow) => r.pid)),
+    [filteredReps],
+  );
+  const activeProps = filteredPids.size;
 
-  // Secured assets total — sum of all asset amounts across all properties
-  const securedAssetsTotal = properties.reduce((sum, p) => {
-    const propAssets = p.assets ?? [];
-    return sum + propAssets.reduce((s, a) => s + (a.amount ?? 0), 0);
-  }, 0);
+  // Secured assets total — sum only for properties visible in the current filter
+  const securedAssetsTotal = properties
+    .filter((p) => filteredPids.has(p.id))
+    .reduce((sum, p) => {
+      const propAssets = p.assets ?? [];
+      return sum + propAssets.reduce((s, a) => s + (a.amount ?? 0), 0);
+    }, 0);
 
   // Expense ratio for info card
   const expRatio = agg && agg.rev > 0
@@ -423,7 +433,7 @@ export function DashboardClient({ reports, properties, initialExpenseGoal, goalM
         <MetricCard accent label="Total Revenue"       value={fI(agg!.rev)}       sub="Gross booking revenue"                           iconText="₹"  iconVariant="w" />
         <MetricCard       label="Operating Profit"     value={fI(agg!.opProfit)}   sub={agg!.margin + '% of revenue'}                    iconText="✓"  iconVariant="g" />
         <MetricCard       label="Total Expenses"       value={fI(agg!.exp)}        sub={agg!.rev > 0 ? expRatio + '% of revenue' : ''}   iconText="↓"  iconVariant="r" />
-        <MetricCard       label="MehmanGhar Commission" value={agg!.opProfit > 0 ? fI(agg!.commission) : '₹0.00'} sub={agg!.opProfit > 0 ? agg!.commPct + '% of op. profit' : 'No commission on loss'} iconText="%" iconVariant="o" />
+        <MetricCard       label="Commission" value={agg!.opProfit > 0 ? fI(agg!.commission) : '₹0.00'} sub={agg!.opProfit > 0 ? agg!.commPct + '% of op. profit' : 'No commission on loss'} iconText="%" iconVariant="o" />
         <MetricCard       label="Investor Payout"      value={fI(agg!.invProfit)}  sub={agg!.invPct + '% of op. profit'}                 iconText="→"  iconVariant="b" />
         <MetricCard       label="Occupancy"            value={agg!.occ + '%'}      sub={agg!.occ >= 75 ? '✓ On target' : '⚠ Below 75% target'} iconText="◉" iconVariant="go" />
         <MetricCard       label="ADR"                  value={fIN(agg!.adr ?? 0)}  sub="Avg Daily Rate (room only)"                      iconText="⌂"  iconVariant="b" />

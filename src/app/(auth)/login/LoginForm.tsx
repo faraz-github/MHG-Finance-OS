@@ -38,8 +38,11 @@ export default function LoginForm() {
         return;
       }
 
+      // Use ?next= param if present (e.g. redirected from a protected page),
+      // otherwise use the role-specific landing path from the API.
       const next = searchParams.get("next");
-      router.push(next && next.startsWith("/") ? next : "/dashboard");
+      const landing = (next && next.startsWith("/")) ? next : (data.landingPath ?? "/dashboard");
+      router.push(landing);
     } catch {
       setError("Unable to connect. Please check your network and try again.");
     } finally {

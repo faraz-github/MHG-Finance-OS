@@ -25,6 +25,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { Prisma } from '@/generated/prisma/client/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,11 +162,11 @@ export async function POST(
       where:  { key: targetKey(year, month) },
       create: {
         key:         targetKey(year, month),
-        value:       merged,
+        value:       merged as unknown as Prisma.InputJsonValue,
         description: `Monthly targets for ${year}-${String(month).padStart(2, '0')}`,
       },
       update: {
-        value: merged,
+        value: merged as unknown as Prisma.InputJsonValue,
       },
     });
 
